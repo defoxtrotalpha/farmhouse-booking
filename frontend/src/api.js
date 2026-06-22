@@ -384,3 +384,78 @@ export async function rejectBatch(bookingIds, reason) {
   }
   return res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Cancellation helpers (slice #26)
+// ---------------------------------------------------------------------------
+
+/**
+ * Admin cancels a pending or booked booking.
+ * @param {number} bookingId
+ * @param {string} reason  Required, non-empty.
+ */
+export async function cancelBooking(bookingId, reason) {
+  const res = await apiFetch(`/api/bookings/${bookingId}/cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to cancel booking"), { status: res.status });
+  }
+  return res.json();
+}
+
+/**
+ * Owner (or admin) withdraws their own hold or pending booking.
+ * @param {number} bookingId
+ * @param {string} [reason]  Optional custom reason; defaults to 'withdrawn by bookie'.
+ */
+export async function withdrawBooking(bookingId, reason = "") {
+  const res = await apiFetch(`/api/bookings/${bookingId}/withdraw`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: reason || null }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to withdraw booking"), { status: res.status });
+  }
+  return res.json();
+}
+
+/**
+ * Bookie (or admin) requests cancellation of their own BOOKED event.
+ * Status stays 'booked' until admin confirms.
+ * @param {number} bookingId
+ * @param {string} reason  Required, non-empty.
+ */
+export async function requestCancel(bookingId, reason) {
+  const res = await apiFetch(`/api/bookings/${bookingId}/request-cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to request cancellation"), { status: res.status });
+  }
+  return res.json();
+}
+
+/**
+ * Admin confirms a pending cancellation request on a booked event.
+ * @param {number} bookingId
+ */
+export async function confirmCancel(bookingId) {
+  const res = await apiFetch(`/api/bookings/${bookingId}/confirm-cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to confirm cancellation"), { status: res.status });
+  }
+  return res.json();
+}

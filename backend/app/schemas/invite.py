@@ -1,12 +1,19 @@
 """Pydantic schemas for the invite-a-bookie slice."""
 from __future__ import annotations
 
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, field_validator
 
 
 class InviteRequest(BaseModel):
     name: str
-    email: EmailStr
+    email: str
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        import email_validator
+        result = email_validator.validate_email(v, check_deliverability=False)
+        return result.normalized
 
 
 class InviteResponse(BaseModel):

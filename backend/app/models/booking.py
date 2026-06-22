@@ -60,6 +60,17 @@ class Booking(Base):
     decided_at: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # ── cancellation request (slice #26) ─────────────────────────────────────
+    # Set when a bookie requests cancellation of their own BOOKED event (does
+    # NOT change status — stays 'booked' until admin confirms).
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
+    cancel_requested_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
+    # Reason supplied with a cancel request or an admin cancel.
+    # (existing `reason` column is for reject; `cancel_reason` is for cancellation.)
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # ── timestamps ────────────────────────────────────────────────────────────
     created_at: Mapped[datetime] = mapped_column(
         TZDateTime, nullable=False, default=_utcnow

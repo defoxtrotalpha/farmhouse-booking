@@ -5,9 +5,11 @@
  * Slice #24: after approve, fetch /conflicts and show overlapping losers
  *            with a reason input + Reject Selected button (calls /reject-batch).
  *            On 409 conflict from /approve, offer to reject the pending that failed.
+ * Slice #26: cancel section — booked events with pending cancel requests
+ *            that need admin confirmation.
  */
 import { useEffect, useState } from "react";
-import { listBookings, approveBooking, getConflicts, rejectBatch, rejectBooking } from "./api.js";
+import { listBookings, approveBooking, getConflicts, rejectBatch, rejectBooking, cancelBooking, confirmCancel } from "./api.js";
 
 function fmtDt(iso) {
   if (!iso) return "—";
@@ -155,12 +157,20 @@ export default function ApproveQueue() {
   // per-id state: { ok, text, panel: 'conflicts'|'conflict_offer'|null, bookedId, conflictBookedId }
   const [actionMsg, setActionMsg]   = useState({});
 
+  // Cancel-request queue (booked events with pending cancel requests)
+  const [cancelReqBookings, setCancelReqBookings] = useState([]);
+  const [cancelMsgs, setCancelMsgs]               = useState({});
+
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const data = await listBookings({ status: "pending" });
-      setBookings(data);
+      const [pending, booked] = await Promise.all([
+        listBookings({ status: "pending" }),
+        listBookings({ status: "booked" }),
+      ]);
+      setBookings(pending);
+      setCancelReqBookings(booked.filter((b) => b.cancel_requested_at != null));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -275,6 +285,101 @@ export default function ApproveQueue() {
           })}
         </tbody>
       </table>
+
+      {/* ── Cancellation Requests (slice #26) ─────────────────────────── */}
+      <h2 style={{ marginTop: "2rem", fontSize: "1rem" }}>
+        Cancellation Requests ({cancelReqBookings.length})
+      </h2>
+      {cancelReqBookings.length === 0 ? (
+        <p style={{ fontSize: "0.875rem", color: "#555" }}>No pending cancellation requests.</p>
+      ) : (
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
+          <thead>
+            <tr style={{ borderBottom: "2px solid #e5e5e5", textAlign: "left" }}>
+              <th style={{ padding: "0.4rem 0.6rem" }}>#</th>
+              <th style={{ padding: "0.4rem 0.6rem" }}>FH</th>
+              <th style={{ padding: "0.4rem 0.6rem" }}>Client</th>
+              <th style={{ padding: "0.4rem 0.6rem" }}>Start (PKT)</th>
+              <th style={{ padding: "0.4rem 0.6rem" }}>Cancel Reason</th>
+              <th style={{ padding: "0.4rem 0.6rem" }}>Requested At</th>
+              <th style={{ padding: "0.4rem 0.6rem" }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cancelReqBookings.map((b) => {
+              const cm = cancelMsgs[b.id];
+
+              async function handleConfirmCancel() {
+                setCancelMsgs((prev) => ({ ...prev, [b.id]: null }));
+                try {
+                  await confirmCancel(b.id);
+                  setCancelMsgs((prev) => ({
+                    ...prev,
+                    [b.id]: { ok: true, text: "Cancellation confirmed." },
+                  }));
+                  setTimeout(load, 900);
+                } catch (e) {
+                  setCancelMsgs((prev) => ({
+                    ...prev,
+                    [b.id]: { ok: false, text: e.message ?? "Failed" },
+                  }));
+                }
+              }
+
+              async function handleDirectCancel() {
+                const reason = window.prompt("Cancel reason:");
+                if (!reason || !reason.trim()) return;
+                setCancelMsgs((prev) => ({ ...prev, [b.id]: null }));
+                try {
+                  await cancelBooking(b.id, reason);
+                  setCancelMsgs((prev) => ({
+                    ...prev,
+                    [b.id]: { ok: true, text: "Booking canceled." },
+                  }));
+                  setTimeout(load, 900);
+                } catch (e) {
+                  setCancelMsgs((prev) => ({
+                    ...prev,
+                    [b.id]: { ok: false, text: e.message ?? "Failed" },
+                  }));
+                }
+              }
+
+              return (
+                <tr key={b.id} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                  <td style={{ padding: "0.4rem 0.6rem" }}>{b.id}</td>
+                  <td style={{ padding: "0.4rem 0.6rem" }}>{b.farmhouse_id}</td>
+                  <td style={{ padding: "0.4rem 0.6rem" }}>{b.client_name ?? "—"}</td>
+                  <td style={{ padding: "0.4rem 0.6rem" }}>{new Date(b.start_at).toLocaleString("en-PK", { timeZone: "Asia/Karachi" })}</td>
+                  <td style={{ padding: "0.4rem 0.6rem" }}>{b.cancel_reason ?? "—"}</td>
+                  <td style={{ padding: "0.4rem 0.6rem" }}>{new Date(b.cancel_requested_at).toLocaleString("en-PK", { timeZone: "Asia/Karachi" })}</td>
+                  <td style={{ padding: "0.4rem 0.6rem" }}>
+                    <button
+                      onClick={handleConfirmCancel}
+                      disabled={!!cm}
+                      style={{ cursor: "pointer", padding: "0.2rem 0.6rem", background: "#fff3cd", marginRight: "0.3rem" }}
+                    >
+                      Confirm Cancellation
+                    </button>
+                    <button
+                      onClick={handleDirectCancel}
+                      disabled={!!cm}
+                      style={{ cursor: "pointer", padding: "0.2rem 0.6rem" }}
+                    >
+                      Cancel (direct)
+                    </button>
+                    {cm && (
+                      <span style={{ marginLeft: "0.4rem", fontSize: "0.8rem", color: cm.ok ? "#1a7f37" : "#b00020" }}>
+                        {cm.text}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </section>
   );
 }

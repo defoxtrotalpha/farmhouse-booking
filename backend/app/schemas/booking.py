@@ -3,6 +3,7 @@
 Slice #21: AvailabilityEntry
 Slice #22: HoldRequest, SubmitRequest, BookingRead
 Slice #24: RejectRequest, RejectBatchRequest, RejectBatchResponse, SkippedEntry
+Slice #26: CancelRequest, WithdrawRequest, RequestCancelRequest
 """
 from __future__ import annotations
 
@@ -67,6 +68,10 @@ class BookingRead(BaseModel):
     decided_by: Optional[int] = None
     decided_at: Optional[datetime] = None
     reason: Optional[str] = None
+    # Cancellation request fields (slice #26)
+    cancel_requested_at: Optional[datetime] = None
+    cancel_requested_by: Optional[int] = None
+    cancel_reason: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -116,3 +121,39 @@ class RejectBatchResponse(BaseModel):
 
     rejected: List[int]
     skipped: List[SkippedEntry]
+
+
+# ---------------------------------------------------------------------------
+# Slice #26 — Cancellation / Withdraw / Request-cancel / Confirm-cancel
+# ---------------------------------------------------------------------------
+
+class CancelRequest(BaseModel):
+    """POST /api/bookings/{id}/cancel request body (admin only)."""
+
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def reason_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("reason must not be empty")
+        return v
+
+
+class WithdrawRequest(BaseModel):
+    """POST /api/bookings/{id}/withdraw request body (owner or admin)."""
+
+    reason: Optional[str] = None
+
+
+class RequestCancelBody(BaseModel):
+    """POST /api/bookings/{id}/request-cancel request body (owner or admin)."""
+
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def reason_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("reason must not be empty")
+        return v

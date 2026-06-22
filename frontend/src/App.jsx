@@ -7,6 +7,7 @@ import ActivityLogPage from "./ActivityLog.jsx";
 import PoliciesPage from "./Policies.jsx";
 import CalendarPage from "./CalendarPage.jsx";
 import ApproveQueue from "./ApproveQueue.jsx";
+import MyBookings from "./MyBookings.jsx";
 
 // ---------------------------------------------------------------------------
 // Login form
@@ -111,6 +112,7 @@ function AppShell({ user, onLogout }) {
       <nav style={{ borderBottom: "1px solid #e5e5e5", display: "flex", gap: "0.25rem", marginBottom: "1.5rem" }}>
         {navBtn("dashboard", "Dashboard")}
         {navBtn("calendar", "Calendar")}
+        {navBtn("bookings", "My Bookings")}
         {navBtn("farmhouses", "Farmhouses")}
         {user.role === "admin" && navBtn("approve", "Approvals")}
         {user.role === "admin" && navBtn("invites", "Invite Bookie")}
@@ -133,6 +135,7 @@ function AppShell({ user, onLogout }) {
       )}
 
       {tab === "farmhouses" && <FarmhousesPage user={user} />}
+      {tab === "bookings" && <MyBookings user={user} />}
       {tab === "calendar" && <CalendarPage />}
       {tab === "approve" && user.role === "admin" && <ApproveQueue />}
       {tab === "invites" && user.role === "admin" && <InviteBookiePage />}

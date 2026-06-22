@@ -24,7 +24,11 @@ from app.db import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.booking import Booking
 from app.models.farmhouse import Farmhouse
-from app.schemas.booking import BookingRead, HoldRequest, SubmitRequest, RejectRequest, RejectBatchRequest, RejectBatchResponse
+from app.schemas.booking import (
+    BookingRead, HoldRequest, SubmitRequest,
+    RejectRequest, RejectBatchRequest, RejectBatchResponse,
+    CancelRequest, WithdrawRequest, RequestCancelBody,
+)
 from app.services.activity import log_activity
 from app.services.booking_engine import find_booked_conflict, find_overlapping_unresolved
 from app.services.hold_expiry import is_hold_expired
@@ -471,6 +475,248 @@ def reject_booking(
         target_type="booking",
         target_id=booking_id,
         note=body.reason,
+    )
+    db.commit()
+    db.refresh(booking)
+    return booking
+
+
+# ---------------------------------------------------------------------------
+# POST /api/bookings/{booking_id}/cancel  (slice #26 — admin only)
+# ---------------------------------------------------------------------------
+
+@router.post("/bookings/{booking_id}/cancel", response_model=BookingRead)
+def cancel_booking(
+    booking_id: int,
+    body: CancelRequest,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+) -> Booking:
+    """Admin cancels a pending or booked booking.
+
+    Preconditions:
+      - booking exists                           (404)
+      - booking.status in ('pending', 'booked')  (409 otherwise)
+      - body.reason is non-empty                 (422)
+
+    On success:
+      - status      -> 'canceled'
+      - decided_by   = admin.id
+      - decided_at   = now (UTC)
+      - cancel_reason = body.reason
+      - 'booking.canceled' activity log entry added in the SAME transaction.
+
+    A canceled booking no longer occupies the slot (find_booked_conflict
+    filters on status='booked' only), so approving an overlapping pending
+    now succeeds automatically.
+    """
+    booking: Booking | None = db.get(Booking, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.status not in ("pending", "booked"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Only pending or booked bookings can be canceled via this endpoint (current: {booking.status})",
+        )
+
+    now = datetime.now(timezone.utc)
+    booking.status      = "canceled"
+    booking.decided_by  = admin.id
+    booking.decided_at  = now
+    booking.cancel_reason = body.reason
+
+    # NOTIFY: admin canceled booking (wired in #27)
+    log_activity(
+        db,
+        actor_id=admin.id,
+        action="booking.canceled",
+        target_type="booking",
+        target_id=booking_id,
+        note=body.reason,
+    )
+    db.commit()
+    db.refresh(booking)
+    return booking
+
+
+# ---------------------------------------------------------------------------
+# POST /api/bookings/{booking_id}/withdraw  (slice #26 — owner OR admin)
+# ---------------------------------------------------------------------------
+
+@router.post("/bookings/{booking_id}/withdraw", response_model=BookingRead)
+def withdraw_booking(
+    booking_id: int,
+    body: WithdrawRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> Booking:
+    """Bookie (or admin) withdraws their own hold or pending booking.
+
+    Preconditions:
+      - booking exists                              (404)
+      - requester is owner OR admin                 (403)
+      - booking.status in ('hold', 'pending')       (409; use /request-cancel for booked)
+
+    On success:
+      - status              -> 'canceled'
+      - cancel_requested_by  = current_user.id  (traceability)
+      - cancel_reason        = body.reason if provided, else 'withdrawn by bookie'
+      - decided_by stays null (self-withdraw)
+      - 'booking.withdrawn' activity log entry.
+    """
+    booking: Booking | None = db.get(Booking, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    # Permission: owner or admin
+    if booking.bookie_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="You do not have permission to withdraw this booking")
+
+    if booking.status not in ("hold", "pending"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Only hold or pending bookings can be withdrawn (current: {booking.status}). Use /request-cancel for booked bookings.",
+        )
+
+    booking.status              = "canceled"
+    booking.cancel_requested_by = current_user.id
+    booking.cancel_reason       = body.reason if (body.reason and body.reason.strip()) else "withdrawn by bookie"
+
+    # NOTIFY: bookie withdrew booking (wired in #27)
+    log_activity(
+        db,
+        actor_id=current_user.id,
+        action="booking.withdrawn",
+        target_type="booking",
+        target_id=booking_id,
+        note=booking.cancel_reason,
+    )
+    db.commit()
+    db.refresh(booking)
+    return booking
+
+
+# ---------------------------------------------------------------------------
+# POST /api/bookings/{booking_id}/request-cancel  (slice #26 — owner OR admin)
+# ---------------------------------------------------------------------------
+
+@router.post("/bookings/{booking_id}/request-cancel", response_model=BookingRead)
+def request_cancel(
+    booking_id: int,
+    body: RequestCancelBody,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> Booking:
+    """Bookie requests cancellation of their own BOOKED event.
+
+    Does NOT change status (stays 'booked'; keeps occupying the slot until admin
+    confirms). Sets cancel_requested_at, cancel_requested_by, cancel_reason.
+
+    Preconditions:
+      - booking exists                              (404)
+      - requester is owner OR admin                 (403)
+      - booking.status == 'booked'                  (409)
+      - cancel_requested_at is None (not already requested)   (409)
+      - body.reason is non-empty                    (422)
+
+    On success:
+      - cancel_requested_at  = now (UTC)
+      - cancel_requested_by  = current_user.id
+      - cancel_reason        = body.reason
+      - status stays 'booked'
+      - 'booking.cancel_requested' activity log entry.
+    """
+    booking: Booking | None = db.get(Booking, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    # Permission: owner or admin
+    if booking.bookie_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="You do not have permission to request cancellation of this booking")
+
+    if booking.status != "booked":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Only booked bookings can have a cancellation requested (current: {booking.status})",
+        )
+    if booking.cancel_requested_at is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="A cancellation has already been requested for this booking",
+        )
+
+    now = datetime.now(timezone.utc)
+    booking.cancel_requested_at  = now
+    booking.cancel_requested_by  = current_user.id
+    booking.cancel_reason        = body.reason
+
+    # NOTIFY: bookie requested cancellation (wired in #27)
+    log_activity(
+        db,
+        actor_id=current_user.id,
+        action="booking.cancel_requested",
+        target_type="booking",
+        target_id=booking_id,
+        note=body.reason,
+    )
+    db.commit()
+    db.refresh(booking)
+    return booking
+
+
+# ---------------------------------------------------------------------------
+# POST /api/bookings/{booking_id}/confirm-cancel  (slice #26 — admin only)
+# ---------------------------------------------------------------------------
+
+@router.post("/bookings/{booking_id}/confirm-cancel", response_model=BookingRead)
+def confirm_cancel(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+) -> Booking:
+    """Admin finalizes a booked event that has a pending cancellation request.
+
+    Preconditions:
+      - booking exists                              (404)
+      - booking.status == 'booked'                  (409)
+      - cancel_requested_at is not None             (409)
+
+    On success:
+      - status     -> 'canceled'
+      - decided_by  = admin.id
+      - decided_at  = now (UTC)
+      - 'booking.cancel_confirmed' activity log entry.
+
+    Note: Admins may alternatively use /cancel directly to cancel a booked
+    booking without requiring a prior cancellation request.
+    """
+    booking: Booking | None = db.get(Booking, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    if booking.status != "booked":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Only booked bookings can be confirm-canceled (current: {booking.status})",
+        )
+    if booking.cancel_requested_at is None:
+        raise HTTPException(
+            status_code=409,
+            detail="No cancellation has been requested for this booking",
+        )
+
+    now = datetime.now(timezone.utc)
+    booking.status      = "canceled"
+    booking.decided_by  = admin.id
+    booking.decided_at  = now
+
+    # NOTIFY: admin confirmed cancellation (wired in #27)
+    log_activity(
+        db,
+        actor_id=admin.id,
+        action="booking.cancel_confirmed",
+        target_type="booking",
+        target_id=booking_id,
     )
     db.commit()
     db.refresh(booking)
