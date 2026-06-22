@@ -1,28 +1,41 @@
-"""Booking router — Hold a slot + Submit Pending (slice #22).
+"""Booking router — Hold / Submit / Approve + list/get.
 
 Endpoints
 ---------
-POST /api/bookings/hold                 any active user  -> 201 BookingRead
-POST /api/bookings/{booking_id}/submit  owner or admin   -> 200 BookingRead
-GET  /api/bookings                      any active user  -> 200 [BookingRead]
-GET  /api/bookings/{booking_id}         owner or admin   -> 200 BookingRead
+POST /api/bookings/hold                  any active user  -> 201 BookingRead
+POST /api/bookings/{booking_id}/submit   owner or admin   -> 200 BookingRead
+POST /api/bookings/{booking_id}/approve  admin only       -> 200 BookingRead
+GET  /api/bookings                       any active user  -> 200 [BookingRead]
+GET  /api/bookings/{booking_id}          owner or admin   -> 200 BookingRead
 """
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_admin
 from app.models.booking import Booking
 from app.models.farmhouse import Farmhouse
 from app.schemas.booking import BookingRead, HoldRequest, SubmitRequest
 from app.services.activity import log_activity
+from app.services.booking_engine import find_booked_conflict
 
 router = APIRouter(prefix="/api", tags=["bookings"])
+
+# Serializes the approve check-and-commit critical section. SQLite serialises
+# writers but NOT the read-then-write (write-skew): two concurrent approvals
+# could both pass the conflict SELECT before either commits. For the
+# single-process v1 deployment this process-level lock guarantees that the
+# overlap check and the booked-write are atomic, so confirmed double bookings
+# are impossible. (If ever scaled to multiple processes, replace with a DB-level
+# guard such as Postgres' EXCLUDE constraint or SELECT ... FOR UPDATE.)
+_approve_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -197,4 +210,90 @@ def get_booking(
         raise HTTPException(status_code=404, detail="Booking not found")
     if booking.bookie_id != current_user.id and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="You do not have permission to view this booking")
+    return booking
+
+
+# ---------------------------------------------------------------------------
+# POST /api/bookings/{booking_id}/approve  (slice #23)
+# ---------------------------------------------------------------------------
+
+@router.post("/bookings/{booking_id}/approve", response_model=BookingRead)
+def approve_booking(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+) -> Booking:
+    """Approve a pending booking — transition it to 'booked'.
+
+    Preconditions:
+      - booking exists                              (404)
+      - booking.status == 'pending'                 (409)
+      - no status='booked' booking on the same farmhouse has a buffered range
+        overlapping this booking's buffered range   (409 with conflict_booking_id)
+
+    On success:
+      - status  -> 'booked'
+      - decided_by = admin.id
+      - decided_at = now (UTC)
+      - 'booking.approved' activity log entry added in the SAME transaction
+
+    The overlap check and the status write are performed in ONE transaction.
+    SQLite serialises writers, so two concurrent approve calls are serialised
+    by the DB engine itself — the second one will see the first booking as
+    'booked' and correctly get a 409.
+    """
+    booking: Booking | None = db.get(Booking, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.status != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Booking is not in 'pending' status (current: {booking.status})",
+        )
+
+    # The conflict check and the booked-write must be atomic. Hold a
+    # process-level lock so concurrent approvals cannot both pass the overlap
+    # SELECT before one commits (SQLite alone does not prevent this write-skew).
+    with _approve_lock:
+        # Re-read inside the lock in case another approval just committed.
+        db.refresh(booking)
+        if booking.status != "pending":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Booking is not in 'pending' status (current: {booking.status})",
+            )
+
+        # ── Overlap check (within the same transaction) ─────────────────────
+        conflict = find_booked_conflict(
+            db,
+            farmhouse_id=booking.farmhouse_id,
+            start_at=booking.start_at,
+            end_at=booking.end_at,
+            buffer_minutes=booking.buffer_minutes_snapshot,
+            exclude_booking_id=booking_id,
+        )
+        if conflict is not None:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "detail": "Time slot conflicts with an existing confirmed booking",
+                    "conflict_booking_id": conflict.id,
+                },
+            )
+
+        # ── Approve: set status + metadata ─────────────────────────────────
+        now = datetime.now(timezone.utc)
+        booking.status     = "booked"
+        booking.decided_by = admin.id
+        booking.decided_at = now
+
+        log_activity(
+            db,
+            actor_id=admin.id,
+            action="booking.approved",
+            target_type="booking",
+            target_id=booking_id,
+        )
+        db.commit()
+    db.refresh(booking)
     return booking

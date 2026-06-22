@@ -240,6 +240,29 @@ export async function getAvailability(farmhouseId, start, end) {
 }
 
 // ---------------------------------------------------------------------------
+// Booking endpoints
+// ---------------------------------------------------------------------------
+
+/**
+ * Approve a pending booking (admin only).
+ * Resolves with the updated BookingRead on 200.
+ * On 409 conflict, rejects with an error that has:
+ *   err.message = the detail string
+ *   err.conflict_booking_id = the conflicting booking id
+ * @param {number} id
+ */
+export async function approveBooking(id) {
+  const res = await apiFetch(`/api/bookings/${id}/approve`, { method: "POST" });
+  if (res.ok) return res.json();
+  const body = await res.json().catch(() => ({}));
+  const err = Object.assign(
+    new Error(body.detail ?? "Failed to approve booking"),
+    { status: res.status, conflict_booking_id: body.conflict_booking_id ?? null },
+  );
+  throw err;
+}
+
+// ---------------------------------------------------------------------------
 // Booking endpoints (slice #22)
 // ---------------------------------------------------------------------------
 

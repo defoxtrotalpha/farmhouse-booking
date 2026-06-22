@@ -6,6 +6,7 @@ import SetPasswordPage from "./SetPassword.jsx";
 import ActivityLogPage from "./ActivityLog.jsx";
 import PoliciesPage from "./Policies.jsx";
 import CalendarPage from "./CalendarPage.jsx";
+import ApproveQueue from "./ApproveQueue.jsx";
 
 // ---------------------------------------------------------------------------
 // Login form
@@ -111,6 +112,7 @@ function AppShell({ user, onLogout }) {
         {navBtn("dashboard", "Dashboard")}
         {navBtn("calendar", "Calendar")}
         {navBtn("farmhouses", "Farmhouses")}
+        {user.role === "admin" && navBtn("approve", "Approvals")}
         {user.role === "admin" && navBtn("invites", "Invite Bookie")}
         {navBtn("activity", "Activity Log")}
         {navBtn("policies", "Policies")}
@@ -132,6 +134,7 @@ function AppShell({ user, onLogout }) {
 
       {tab === "farmhouses" && <FarmhousesPage user={user} />}
       {tab === "calendar" && <CalendarPage />}
+      {tab === "approve" && user.role === "admin" && <ApproveQueue />}
       {tab === "invites" && user.role === "admin" && <InviteBookiePage />}
       {tab === "activity" && <ActivityLogPage user={user} />}
       {tab === "policies" && <PoliciesPage user={user} />}
