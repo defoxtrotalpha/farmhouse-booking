@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { getHealth, getMe, login, tokens } from "./api.js";
 import FarmhousesPage from "./Farmhouses.jsx";
+import InviteBookiePage from "./InviteBookie.jsx";
+import SetPasswordPage from "./SetPassword.jsx";
 
 // ---------------------------------------------------------------------------
 // Login form
@@ -105,6 +107,7 @@ function AppShell({ user, onLogout }) {
       <nav style={{ borderBottom: "1px solid #e5e5e5", display: "flex", gap: "0.25rem", marginBottom: "1.5rem" }}>
         {navBtn("dashboard", "Dashboard")}
         {navBtn("farmhouses", "Farmhouses")}
+        {user.role === "admin" && navBtn("invites", "Invite Bookie")}
       </nav>
 
       {tab === "dashboard" && (
@@ -123,6 +126,7 @@ function AppShell({ user, onLogout }) {
       )}
 
       {tab === "farmhouses" && <FarmhousesPage user={user} />}
+      {tab === "invites" && user.role === "admin" && <InviteBookiePage />}
     </main>
   );
 }
@@ -135,12 +139,19 @@ export default function App() {
   const [user, setUser] = useState(undefined); // undefined = loading, null = logged out
 
   useEffect(() => {
+    // Skip auth check on the public set-password route
+    if (window.location.pathname === "/set-password") return;
     if (tokens.getAccess()) {
       getMe().then(setUser).catch(() => setUser(null));
     } else {
       setUser(null);
     }
   }, []);
+
+  // Public route: /set-password — renders without auth
+  if (window.location.pathname === "/set-password") {
+    return <SetPasswordPage />;
+  }
 
   function handleLogin() {
     getMe().then(setUser).catch(() => setUser(null));

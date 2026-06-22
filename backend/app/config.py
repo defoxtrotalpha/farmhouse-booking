@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # CORS origins for the Vite dev server.
     frontend_origin: str = "http://localhost:5173"
 
+    # Invite token lifetime (hours).
+    invite_token_hours: int = 72
+
     # Email. v1 uses the "log" provider (logs instead of sending). Swap to a real
     # provider (e.g. "smtp") without changing callers; supply secrets via env.
     email_provider: str = "log"

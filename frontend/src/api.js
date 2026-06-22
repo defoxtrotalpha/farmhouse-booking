@@ -134,3 +134,34 @@ export async function updateFarmhouse(id, data) {
   return res.json();
 }
 
+// ---------------------------------------------------------------------------
+// Invite endpoints
+// ---------------------------------------------------------------------------
+
+export async function inviteBookie(name, email) {
+  const res = await apiFetch("/api/invites", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, email }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to send invite"), { status: res.status });
+  }
+  return res.json();
+}
+
+// setPassword deliberately does NOT attach an auth token (public endpoint).
+export async function setPassword(token, password) {
+  const res = await fetch(`${BASE}/api/invites/set-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, password }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to set password"), { status: res.status });
+  }
+  return res.json();
+}
+
