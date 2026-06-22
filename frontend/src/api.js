@@ -214,3 +214,28 @@ export async function listActivity({ limit = 50, offset = 0 } = {}) {
   return res.json();
 }
 
+// ---------------------------------------------------------------------------
+// Availability endpoints
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch occupied bookings (hold/pending/booked) for a farmhouse
+ * that intersect the half-open window [start, end).
+ * @param {number} farmhouseId
+ * @param {Date}   start  - window start (will be serialised as ISO8601 UTC)
+ * @param {Date}   end    - window end
+ * @returns {Promise<Array>} list of {id, status, start_at, end_at, bookie_id}
+ */
+export async function getAvailability(farmhouseId, start, end) {
+  const params = new URLSearchParams({
+    start: start.toISOString(),
+    end:   end.toISOString(),
+  });
+  const res = await apiFetch(`/api/farmhouses/${farmhouseId}/availability?${params}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? "Failed to load availability");
+  }
+  return res.json();
+}
+

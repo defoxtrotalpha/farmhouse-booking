@@ -5,6 +5,7 @@ import InviteBookiePage from "./InviteBookie.jsx";
 import SetPasswordPage from "./SetPassword.jsx";
 import ActivityLogPage from "./ActivityLog.jsx";
 import PoliciesPage from "./Policies.jsx";
+import CalendarPage from "./CalendarPage.jsx";
 
 // ---------------------------------------------------------------------------
 // Login form
@@ -108,14 +109,14 @@ function AppShell({ user, onLogout }) {
 
       <nav style={{ borderBottom: "1px solid #e5e5e5", display: "flex", gap: "0.25rem", marginBottom: "1.5rem" }}>
         {navBtn("dashboard", "Dashboard")}
+        {navBtn("calendar", "Calendar")}
         {navBtn("farmhouses", "Farmhouses")}
         {user.role === "admin" && navBtn("invites", "Invite Bookie")}
         {navBtn("activity", "Activity Log")}
         {navBtn("policies", "Policies")}
       </nav>
 
-      {tab === "dashboard" && (
-        <section style={{ padding: "1rem 1.25rem", border: "1px solid #e5e5e5", borderRadius: 12 }}>
+      {tab === "dashboard" && (        <section style={{ padding: "1rem 1.25rem", border: "1px solid #e5e5e5", borderRadius: 12 }}>
           <h2 style={{ margin: 0, fontSize: "1rem" }}>System status</h2>
           {healthError && <p style={{ color: "#b00020" }}>Backend unreachable: {healthError}</p>}
           {!healthError && !health && <p>Checking…</p>}
@@ -130,6 +131,7 @@ function AppShell({ user, onLogout }) {
       )}
 
       {tab === "farmhouses" && <FarmhousesPage user={user} />}
+      {tab === "calendar" && <CalendarPage />}
       {tab === "invites" && user.role === "admin" && <InviteBookiePage />}
       {tab === "activity" && <ActivityLogPage user={user} />}
       {tab === "policies" && <PoliciesPage user={user} />}
