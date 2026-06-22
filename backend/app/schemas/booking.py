@@ -2,13 +2,14 @@
 
 Slice #21: AvailabilityEntry
 Slice #22: HoldRequest, SubmitRequest, BookingRead
+Slice #24: RejectRequest, RejectBatchRequest, RejectBatchResponse, SkippedEntry
 """
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class AvailabilityEntry(BaseModel):
@@ -70,3 +71,48 @@ class BookingRead(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
+# Slice #24 — Reject / Reject-batch
+# ---------------------------------------------------------------------------
+
+class RejectRequest(BaseModel):
+    """POST /api/bookings/{id}/reject request body."""
+
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def reason_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("reason must not be empty")
+        return v
+
+
+class RejectBatchRequest(BaseModel):
+    """POST /api/bookings/reject-batch request body."""
+
+    booking_ids: List[int]
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def reason_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("reason must not be empty")
+        return v
+
+
+class SkippedEntry(BaseModel):
+    """One entry in the 'skipped' list of a reject-batch response."""
+
+    id: int
+    reason_skipped: str
+
+
+class RejectBatchResponse(BaseModel):
+    """POST /api/bookings/reject-batch response body."""
+
+    rejected: List[int]
+    skipped: List[SkippedEntry]

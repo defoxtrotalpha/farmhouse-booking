@@ -327,3 +327,60 @@ export async function listBookings({ status, farmhouse_id } = {}) {
   return res.json();
 }
 
+// ---------------------------------------------------------------------------
+// Conflict resolution helpers (slice #24)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch overlapping hold/pending bookings for the given (typically booked) booking.
+ * Admin only. Called after a successful approve to find the "losers".
+ * @param {number} bookingId
+ * @returns {Promise<Array>} [BookingRead]
+ */
+export async function getConflicts(bookingId) {
+  const res = await apiFetch(`/api/bookings/${bookingId}/conflicts`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to load conflicts"), { status: res.status });
+  }
+  return res.json();
+}
+
+/**
+ * Reject a single hold or pending booking (admin only).
+ * @param {number} bookingId
+ * @param {string} reason  Required, non-empty.
+ * @returns {Promise<Object>} BookingRead with status='rejected'
+ */
+export async function rejectBooking(bookingId, reason) {
+  const res = await apiFetch(`/api/bookings/${bookingId}/reject`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to reject booking"), { status: res.status });
+  }
+  return res.json();
+}
+
+/**
+ * Batch-reject multiple hold/pending bookings (admin only).
+ * Bookings that are already terminal are skipped (reported in response.skipped).
+ * @param {number[]} bookingIds
+ * @param {string}   reason
+ * @returns {Promise<{rejected: number[], skipped: {id:number, reason_skipped:string}[]}>}
+ */
+export async function rejectBatch(bookingIds, reason) {
+  const res = await apiFetch("/api/bookings/reject-batch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ booking_ids: bookingIds, reason }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to batch reject bookings"), { status: res.status });
+  }
+  return res.json();
+}

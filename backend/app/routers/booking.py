@@ -22,9 +22,9 @@ from app.db import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.booking import Booking
 from app.models.farmhouse import Farmhouse
-from app.schemas.booking import BookingRead, HoldRequest, SubmitRequest
+from app.schemas.booking import BookingRead, HoldRequest, SubmitRequest, RejectRequest, RejectBatchRequest, RejectBatchResponse
 from app.services.activity import log_activity
-from app.services.booking_engine import find_booked_conflict
+from app.services.booking_engine import find_booked_conflict, find_overlapping_unresolved
 
 router = APIRouter(prefix="/api", tags=["bookings"])
 
@@ -295,5 +295,160 @@ def approve_booking(
             target_id=booking_id,
         )
         db.commit()
+    db.refresh(booking)
+    return booking
+
+
+# ---------------------------------------------------------------------------
+# GET /api/bookings/{booking_id}/conflicts  (slice #24)
+# ---------------------------------------------------------------------------
+
+@router.get("/bookings/{booking_id}/conflicts", response_model=List[BookingRead])
+def get_booking_conflicts(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+) -> list:
+    """Return overlapping hold/pending bookings for a given (usually booked) booking.
+
+    Called by the UI immediately after a successful /approve to discover the
+    "losers" — other hold/pending requests on the same farmhouse whose
+    buffered range overlaps the just-approved booking. The admin can then
+    reject them via /reject or /reject-batch.
+
+    Preconditions:
+      - booking exists       (404)
+      - admin only           (403)
+
+    Returns an empty list if there are no overlapping hold/pending bookings.
+    """
+    booking: Booking | None = db.get(Booking, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    return find_overlapping_unresolved(
+        db,
+        farmhouse_id=booking.farmhouse_id,
+        start_at=booking.start_at,
+        end_at=booking.end_at,
+        buffer_minutes=booking.buffer_minutes_snapshot,
+        exclude_booking_id=booking_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/bookings/reject-batch  (slice #24) — MUST be before /{booking_id}/reject
+# ---------------------------------------------------------------------------
+
+@router.post("/bookings/reject-batch", response_model=RejectBatchResponse)
+def reject_batch(
+    body: RejectBatchRequest,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+) -> RejectBatchResponse:
+    """Batch-reject hold/pending bookings (admin only).
+
+    For each id in booking_ids:
+      - If the booking is hold or pending -> reject it (status='rejected',
+        decided_by/decided_at/reason set) + emit 'request.rejected' activity log.
+      - Otherwise (booked, already-rejected, canceled, expired, missing) ->
+        add to skipped list with a reason_skipped string.
+
+    All changes are committed in a single transaction at the end.
+
+    Response:
+      { rejected: [ids], skipped: [{id, reason_skipped}] }
+    """
+    now = datetime.now(timezone.utc)
+    rejected_ids: list[int] = []
+    skipped: list[dict] = []
+
+    for bid in body.booking_ids:
+        booking: Booking | None = db.get(Booking, bid)
+        if booking is None:
+            skipped.append({"id": bid, "reason_skipped": "booking not found"})
+            continue
+        if booking.status not in ("hold", "pending"):
+            skipped.append({
+                "id": bid,
+                "reason_skipped": f"booking is not rejectable (status: {booking.status})",
+            })
+            continue
+
+        booking.status     = "rejected"
+        booking.decided_by = admin.id
+        booking.decided_at = now
+        booking.reason     = body.reason
+
+        # NOTIFY: affected bookie on rejection (wired in #27)
+        log_activity(
+            db,
+            actor_id=admin.id,
+            action="request.rejected",
+            target_type="booking",
+            target_id=bid,
+            note=body.reason,
+        )
+        rejected_ids.append(bid)
+
+    db.commit()
+    return RejectBatchResponse(
+        rejected=rejected_ids,
+        skipped=[{"id": s["id"], "reason_skipped": s["reason_skipped"]} for s in skipped],
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/bookings/{booking_id}/reject  (slice #24)
+# ---------------------------------------------------------------------------
+
+@router.post("/bookings/{booking_id}/reject", response_model=BookingRead)
+def reject_booking(
+    booking_id: int,
+    body: RejectRequest,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+) -> Booking:
+    """Reject a hold or pending booking (admin only).
+
+    Preconditions:
+      - booking exists                        (404)
+      - booking.status in ('hold', 'pending') (409 if not rejectable)
+      - body.reason is non-empty              (422)
+
+    On success:
+      - status     -> 'rejected'
+      - decided_by  = admin.id
+      - decided_at  = now (UTC)
+      - reason      = body.reason
+      - 'request.rejected' activity log entry added in the SAME transaction.
+
+    The booked row for the winning booking is NEVER touched here.
+    """
+    booking: Booking | None = db.get(Booking, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.status not in ("hold", "pending"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Booking is not in a rejectable state (current: {booking.status})",
+        )
+
+    now = datetime.now(timezone.utc)
+    booking.status     = "rejected"
+    booking.decided_by = admin.id
+    booking.decided_at = now
+    booking.reason     = body.reason
+
+    # NOTIFY: affected bookie on rejection (wired in #27)
+    log_activity(
+        db,
+        actor_id=admin.id,
+        action="request.rejected",
+        target_type="booking",
+        target_id=booking_id,
+        note=body.reason,
+    )
+    db.commit()
     db.refresh(booking)
     return booking

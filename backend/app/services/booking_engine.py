@@ -82,3 +82,64 @@ def find_booked_conflict(
             return candidate
 
     return None
+
+
+def find_overlapping_unresolved(
+    db: "Session",
+    *,
+    farmhouse_id: int,
+    start_at: "datetime",
+    end_at: "datetime",
+    buffer_minutes: int,
+    exclude_booking_id: int | None = None,
+) -> "list":
+    """Return ALL bookings on farmhouse_id with status IN ('hold', 'pending')
+    whose buffered range intersects the given buffered range.
+
+    Differs from find_booked_conflict in two ways:
+      1. Filters on status IN ('hold', 'pending') rather than 'booked'.
+      2. Returns a LIST of all matches rather than the first conflict.
+
+    Used by slice #24: after approving a booking, find all overlapping
+    unresolved competitors so the admin can reject the losers.
+
+    Buffered range logic is identical to find_booked_conflict — each
+    candidate's own buffer_minutes_snapshot is used.
+
+    Parameters
+    ----------
+    db                  : active SQLAlchemy session
+    farmhouse_id        : filter to this farmhouse only
+    start_at / end_at   : UTC datetimes of the reference booking
+    buffer_minutes      : buffer for the reference booking (snapshot value)
+    exclude_booking_id  : skip this id (pass the reference booking's own id
+                          so it doesn't appear in the results)
+
+    Returns
+    -------
+    List of conflicting hold/pending Booking rows (may be empty).
+    """
+    from app.models.booking import Booking  # local import — avoids circular deps
+
+    my_buf_start = start_at - timedelta(minutes=buffer_minutes)
+    my_buf_end   = end_at   + timedelta(minutes=buffer_minutes)
+
+    query = (
+        db.query(Booking)
+        .filter(
+            Booking.farmhouse_id == farmhouse_id,
+            Booking.status.in_(["hold", "pending"]),
+        )
+    )
+    if exclude_booking_id is not None:
+        query = query.filter(Booking.id != exclude_booking_id)
+
+    results = []
+    for candidate in query.all():
+        buf = candidate.buffer_minutes_snapshot
+        c_start = candidate.start_at - timedelta(minutes=buf)
+        c_end   = candidate.end_at   + timedelta(minutes=buf)
+        if ranges_intersect(my_buf_start, my_buf_end, c_start, c_end):
+            results.append(candidate)
+
+    return results
