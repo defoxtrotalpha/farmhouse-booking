@@ -239,3 +239,68 @@ export async function getAvailability(farmhouseId, start, end) {
   return res.json();
 }
 
+// ---------------------------------------------------------------------------
+// Booking endpoints (slice #22)
+// ---------------------------------------------------------------------------
+
+/**
+ * Place a hold on a farmhouse slot.
+ * @param {number} farmhouseId
+ * @param {Date}   startAt
+ * @param {Date}   endAt
+ * @returns {Promise<Object>} BookingRead
+ */
+export async function createHold(farmhouseId, startAt, endAt) {
+  const res = await apiFetch("/api/bookings/hold", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      farmhouse_id: farmhouseId,
+      start_at: startAt.toISOString(),
+      end_at:   endAt.toISOString(),
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to place hold"), { status: res.status });
+  }
+  return res.json();
+}
+
+/**
+ * Submit a hold as a pending booking request with client details.
+ * @param {number} bookingId
+ * @param {Object} details  { client_name, client_contact, event_type?, event_info?, notes?, quoted_price? }
+ * @returns {Promise<Object>} BookingRead
+ */
+export async function submitBooking(bookingId, details) {
+  const res = await apiFetch(`/api/bookings/${bookingId}/submit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(details),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to submit booking"), { status: res.status });
+  }
+  return res.json();
+}
+
+/**
+ * List bookings (role-filtered: bookie sees own; admin sees all).
+ * @param {{ status?: string, farmhouse_id?: number }} filters
+ * @returns {Promise<Array>} [BookingRead]
+ */
+export async function listBookings({ status, farmhouse_id } = {}) {
+  const params = new URLSearchParams();
+  if (status)       params.set("status", status);
+  if (farmhouse_id) params.set("farmhouse_id", String(farmhouse_id));
+  const qs = params.toString() ? `?${params}` : "";
+  const res = await apiFetch(`/api/bookings${qs}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? "Failed to load bookings");
+  }
+  return res.json();
+}
+
