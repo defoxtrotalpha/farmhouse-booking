@@ -27,6 +27,11 @@ build/
 .DS_Store
 Thumbs.db
 
+# Database (local SQLite v1)
+*.db
+*.sqlite
+*.sqlite3
+
 # Logs
 *.log
 
