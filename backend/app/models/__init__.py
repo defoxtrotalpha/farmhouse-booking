@@ -10,5 +10,6 @@ from app.db import Base
 from app.models.user import User  # noqa: F401
 from app.models.invite import InviteToken  # noqa: F401
 from app.models.farmhouse import Farmhouse  # noqa: F401
+from app.models.activity import ActivityLog  # noqa: F401
 
-__all__ = ["Base", "User", "Farmhouse"]
+__all__ = ["Base", "User", "Farmhouse", "ActivityLog"]

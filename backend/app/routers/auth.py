@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models.user import User
 from app.schemas.auth import (
+
     AccessTokenResponse,
     LoginRequest,
     MeResponse,
@@ -21,6 +22,7 @@ from app.security import (
     decode_token,
     verify_password,
 )
+from app.services.activity import log_activity
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -40,6 +42,15 @@ def login(body: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
 
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled")
+
+    log_activity(
+        db,
+        actor_id=user.id,
+        action="user.login",
+        target_type="user",
+        target_id=user.id,
+    )
+    db.commit()
 
     return TokenResponse(
         access_token=create_access_token(user.id, user.role),

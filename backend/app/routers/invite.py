@@ -18,6 +18,7 @@ from app.models.invite import InviteToken
 from app.models.user import User
 from app.schemas.invite import InviteRequest, InviteResponse, SetPasswordRequest
 from app.security import hash_password
+from app.services.activity import log_activity
 from app.services.email import EmailMessage, get_email_sender
 
 router = APIRouter(prefix="/api", tags=["invites"])
@@ -53,6 +54,13 @@ def create_invite(
     expires_at = datetime.now(timezone.utc) + timedelta(hours=settings.invite_token_hours)
     invite = InviteToken(user_id=user.id, token=token_str, expires_at=expires_at)
     db.add(invite)
+    log_activity(
+        db,
+        actor_id=_admin.id,
+        action="bookie.invited",
+        target_type="user",
+        target_id=user.id,
+    )
     db.commit()
     db.refresh(user)
 
@@ -97,6 +105,13 @@ def set_password(body: SetPasswordRequest, db: Session = Depends(get_db)) -> dic
     user.password_hash = hash_password(body.password)
     user.is_active = True
     invite.used_at = now
+    log_activity(
+        db,
+        actor_id=user.id,
+        action="bookie.activated",
+        target_type="user",
+        target_id=user.id,
+    )
     db.commit()
 
     return {"detail": "Password set successfully. You can now log in."}

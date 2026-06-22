@@ -22,14 +22,18 @@ from app.db import get_db
 from app.models.user import User
 from app.security import decode_token
 
-_bearer = HTTPBearer()
+from typing import Optional
+
+_bearer = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(_bearer),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
     db: Session = Depends(get_db),
 ) -> User:
     """Decode the Bearer access token and return the active User, or raise 401."""
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     try:
         payload = decode_token(credentials.credentials)
     except JWTError:

@@ -165,3 +165,16 @@ export async function setPassword(token, password) {
   return res.json();
 }
 
+// ---------------------------------------------------------------------------
+// Activity Log endpoints
+// ---------------------------------------------------------------------------
+
+export async function listActivity({ limit = 50, offset = 0 } = {}) {
+  const res = await apiFetch(`/api/activity?limit=${limit}&offset=${offset}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? "Failed to load activity log");
+  }
+  return res.json();
+}
+
