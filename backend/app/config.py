@@ -29,6 +29,15 @@ class Settings(BaseSettings):
     # CORS origins for the Vite dev server.
     frontend_origin: str = "http://localhost:5173"
 
+    # Email. v1 uses the "log" provider (logs instead of sending). Swap to a real
+    # provider (e.g. "smtp") without changing callers; supply secrets via env.
+    email_provider: str = "log"
+    email_from: str = "no-reply@farmhouse.local"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
