@@ -18,4 +18,4 @@ Admins manage policy/terms content shown in the app. Each policy has a title, bo
 
 ## Blocked by
 
-- #2 Login & session
+- #17 Login & session

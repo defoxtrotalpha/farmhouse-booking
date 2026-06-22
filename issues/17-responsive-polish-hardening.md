@@ -19,6 +19,6 @@ Final pass to meet the non-functional requirements. Verify and fix the UI for bo
 
 ## Blocked by
 
-- #8 Approve → Booked + overlap exclusion constraint
-- #12 Notifications
-- #14 Settings, blackout dates & business rules
+- #23 Approve → Booked + overlap exclusion constraint
+- #27 Notifications
+- #29 Settings, blackout dates & business rules

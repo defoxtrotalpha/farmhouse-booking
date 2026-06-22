@@ -21,4 +21,4 @@ State machine (from design): `Hold → Pending` (Booked/Rejected handled in late
 
 ## Blocked by
 
-- #6 Read-only calendar + availability
+- #21 Read-only calendar + availability

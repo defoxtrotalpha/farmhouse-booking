@@ -19,5 +19,5 @@ The full onboarding path for a new Bookie. An Admin invites a Bookie by name + e
 
 ## Blocked by
 
-- #2 Login & session
-- #3 Email provider decision
+- #17 Login & session
+- #18 Email provider decision

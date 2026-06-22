@@ -19,4 +19,4 @@ The cancellation paths end-to-end. An Admin can cancel any Pending or Booked boo
 
 ## Blocked by
 
-- #9 Conflict resolution: auto-detect & reject overlapping pendings
+- #24 Conflict resolution: auto-detect & reject overlapping pendings

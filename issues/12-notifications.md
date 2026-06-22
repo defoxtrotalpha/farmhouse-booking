@@ -19,5 +19,5 @@ Keep everyone coordinated. An in-app notification center (bell + list, polled li
 
 ## Blocked by
 
-- #9 Conflict resolution: auto-detect & reject overlapping pendings
-- #3 Email provider decision
+- #24 Conflict resolution: auto-detect & reject overlapping pendings
+- #18 Email provider decision

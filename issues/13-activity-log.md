@@ -18,4 +18,4 @@ A traceable, immutable audit trail. Every state-changing action (login, invite, 
 
 ## Blocked by
 
-- #2 Login & session
+- #17 Login & session

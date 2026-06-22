@@ -18,4 +18,4 @@ Admins manage the set of farmhouses end-to-end. An Admin can create, edit, and d
 
 ## Blocked by
 
-- #2 Login & session
+- #17 Login & session

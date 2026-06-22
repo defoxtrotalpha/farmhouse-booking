@@ -19,4 +19,4 @@ A shared, read-only calendar that shows existing bookings for a selected farmhou
 
 ## Blocked by
 
-- #5 Farmhouse CRUD
+- #20 Farmhouse CRUD

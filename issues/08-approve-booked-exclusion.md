@@ -7,7 +7,7 @@
 
 The core correctness slice. An Admin approves a Pending request and it becomes **Booked** — the only status that exclusively reserves a slot. Confirmed double-booking is made physically impossible by a PostgreSQL range-exclusion constraint: per farmhouse, the padded occupied range cannot overlap another `Booked` row. A second approval that would overlap an existing Booked is rejected at the database level and surfaced as a clear conflict to the Admin.
 
-This is HITL: review the DB migration (exclusion constraint + `btree_gist`), the occupied-range definition with buffer, and the concurrency behavior before implementation. (Conflict auto-rejection of the *losing* pendings is the next slice, #9.)
+This is HITL: review the DB migration (exclusion constraint + `btree_gist`), the occupied-range definition with buffer, and the concurrency behavior before implementation. (Conflict auto-rejection of the *losing* pendings is the next slice, #24.)
 
 Decision-encoding detail (from design):
 - Occupied range = `tstzrange(start_at - buffer, end_at + buffer)` using a per-booking buffer snapshot.
@@ -25,4 +25,4 @@ Decision-encoding detail (from design):
 
 ## Blocked by
 
-- #7 Hold a slot → submit Pending
+- #22 Hold a slot → submit Pending

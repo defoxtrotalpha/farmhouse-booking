@@ -18,4 +18,4 @@ Give Admins visibility into the operation. Reports cover monthly/yearly bookings
 
 ## Blocked by
 
-- #9 Conflict resolution: auto-detect & reject overlapping pendings
+- #24 Conflict resolution: auto-detect & reject overlapping pendings

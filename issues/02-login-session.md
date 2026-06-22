@@ -20,4 +20,4 @@ End-to-end authentication for an existing user. A seeded Admin account can log i
 
 ## Blocked by
 
-- #1 Walking skeleton
+- #16 Walking skeleton

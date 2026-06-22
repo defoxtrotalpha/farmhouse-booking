@@ -18,4 +18,4 @@ Abandoned holds (placed but never submitted to Pending) expire automatically. Ex
 
 ## Blocked by
 
-- #7 Hold a slot → submit Pending
+- #22 Hold a slot → submit Pending

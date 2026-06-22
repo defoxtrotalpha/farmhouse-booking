@@ -18,4 +18,4 @@ Complete the competitive-hold workflow. When an Admin approves one request for a
 
 ## Blocked by
 
-- #8 Approve → Booked + overlap exclusion constraint
+- #23 Approve → Booked + overlap exclusion constraint
