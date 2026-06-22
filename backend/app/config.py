@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     # Invite token lifetime (hours).
     invite_token_hours: int = 72
 
+    # Hold expiry and cleanup.
+    hold_duration_hours: int = 24
+    hold_sweep_minutes: int = 30
+    enable_hold_scheduler: bool = True
+
     # Email. v1 uses the "log" provider (logs instead of sending). Swap to a real
     # provider (e.g. "smtp") without changing callers; supply secrets via env.
     email_provider: str = "log"

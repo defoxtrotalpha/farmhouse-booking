@@ -245,7 +245,16 @@ export default function CalendarPage() {
       const { start, end } = windowRef.current;
       if (selectedFhId && start && end) fetchEvents(selectedFhId, start, end);
     } catch (e) {
-      setSubmitError(e.message);
+      // Expired-hold 409: clear the stale hold and prompt the user to re-hold.
+      if (e.status === 409 && typeof e.message === "string" && e.message.toLowerCase().includes("expired")) {
+        setSubmitError("This hold has expired. Please place a new hold for the same slot.");
+        setPendingHold(null);
+        // Refresh calendar so the expired hold no longer shows as occupied.
+        const { start, end } = windowRef.current;
+        if (selectedFhId && start && end) fetchEvents(selectedFhId, start, end);
+      } else {
+        setSubmitError(e.message);
+      }
     } finally {
       setSubmitLoading(false);
     }

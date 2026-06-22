@@ -16,8 +16,10 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
+from sqlalchemy import and_, not_
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.booking import Booking
@@ -25,6 +27,7 @@ from app.models.farmhouse import Farmhouse
 from app.schemas.booking import BookingRead, HoldRequest, SubmitRequest, RejectRequest, RejectBatchRequest, RejectBatchResponse
 from app.services.activity import log_activity
 from app.services.booking_engine import find_booked_conflict, find_overlapping_unresolved
+from app.services.hold_expiry import is_hold_expired
 
 router = APIRouter(prefix="/api", tags=["bookings"])
 
@@ -97,7 +100,7 @@ def create_hold(
         start_at=start_at,
         end_at=end_at,
         buffer_minutes_snapshot=fh.buffer_minutes,
-        expires_at=now + timedelta(hours=DEFAULT_HOLD_HOURS),
+        expires_at=now + timedelta(hours=get_settings().hold_duration_hours),
     )
     db.add(booking)
     db.flush()  # assigns booking.id before we log it
@@ -137,6 +140,13 @@ def submit_booking(
         raise HTTPException(status_code=404, detail="Booking not found")
     if booking.status != "hold":
         raise HTTPException(status_code=409, detail="Booking is not in 'hold' status")
+    # Guard: an expired hold cannot be submitted — the bookie must place a new hold.
+    _now = datetime.now(timezone.utc)
+    if is_hold_expired(booking, _now):
+        raise HTTPException(
+            status_code=409,
+            detail="Hold has expired; please place a new hold",
+        )
     if booking.bookie_id != current_user.id and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="You do not have permission to submit this booking")
 
@@ -183,6 +193,19 @@ def list_bookings(
 
     if current_user.role != "admin":
         query = query.filter(Booking.bookie_id == current_user.id)
+
+    # Lazy expiry: exclude holds that have timed-out but haven't been swept yet.
+    # This keeps the listing consistent with the availability endpoint without
+    # depending on the APScheduler job having run.
+    _now = datetime.now(timezone.utc)
+    query = query.filter(
+        not_(and_(
+            Booking.status == "hold",
+            Booking.expires_at.isnot(None),
+            Booking.expires_at < _now,
+        ))
+    )
+
     if status is not None:
         query = query.filter(Booking.status == status)
     if farmhouse_id is not None:

@@ -10,8 +10,10 @@ buffered variant for the exclusive-booked overlap check.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
+
+from sqlalchemy import and_, not_
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -49,6 +51,18 @@ def get_occupied_bookings(
     """
     from app.models.booking import Booking  # local import avoids circular deps
 
+    now = datetime.now(timezone.utc)
+
+    # Lazy expiry: a hold whose expires_at < now is treated as gone even if
+    # the APScheduler sweep has not yet flipped its status to 'expired'.
+    _not_expired_hold = not_(
+        and_(
+            Booking.status == "hold",
+            Booking.expires_at.isnot(None),
+            Booking.expires_at < now,
+        )
+    )
+
     return (
         db.query(Booking)
         .filter(
@@ -56,6 +70,7 @@ def get_occupied_bookings(
             Booking.status.in_(_OCCUPIED_STATUSES),
             Booking.start_at < window_end,
             Booking.end_at > window_start,
+            _not_expired_hold,
         )
         .all()
     )
