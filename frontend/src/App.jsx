@@ -10,6 +10,7 @@ import ApproveQueue from "./ApproveQueue.jsx";
 import MyBookings from "./MyBookings.jsx";
 import SettingsPage from "./Settings.jsx";
 import BlackoutsManager from "./BlackoutsManager.jsx";
+import NotificationBell from "./NotificationBell.jsx";
 
 // ---------------------------------------------------------------------------
 // Login form
@@ -105,7 +106,10 @@ function AppShell({ user, onLogout }) {
     <main style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 760, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <h1 style={{ margin: 0 }}>Farmhouse Booking</h1>
-        <button onClick={onLogout} style={{ cursor: "pointer" }}>Sign out</button>
+        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+          <NotificationBell />
+          <button onClick={onLogout} style={{ cursor: "pointer" }}>Sign out</button>
+        </div>
       </div>
       <p style={{ color: "#666", marginTop: "0.25rem" }}>
         Signed in as <strong>{user.name || user.email}</strong> ({user.role})

@@ -15,6 +15,7 @@ from app.routers import availability
 from app.routers import booking
 from app.routers import settings as settings_router
 from app.routers import blackout as blackout_router
+from app.routers import notifications as notifications_router
 
 settings = get_settings()
 
@@ -24,14 +25,15 @@ _scheduler_started = False
 
 
 def _start_hold_scheduler(s) -> None:  # pragma: no cover
-    """Start the APScheduler background job that sweeps stale holds.
+    """Start APScheduler background jobs: hold expiry sweep + booking reminders.
 
-    Opens its own DB session (not shared with request handlers) and closes it
-    after each run.  Only called when settings.enable_hold_scheduler is True.
+    Both jobs open their own DB session per run and close it after.
+    Only called when settings.enable_hold_scheduler is True.
     """
     from apscheduler.schedulers.background import BackgroundScheduler
     from app.db import SessionLocal
     from app.services.hold_expiry import expire_stale_holds
+    from app.services.notifications import generate_upcoming_reminders
 
     def _job() -> None:
         db = SessionLocal()
@@ -40,8 +42,16 @@ def _start_hold_scheduler(s) -> None:  # pragma: no cover
         finally:
             db.close()
 
+    def _job_reminders() -> None:
+        db = SessionLocal()
+        try:
+            generate_upcoming_reminders(db)
+        finally:
+            db.close()
+
     scheduler = BackgroundScheduler()
     scheduler.add_job(_job, "interval", minutes=s.hold_sweep_minutes)
+    scheduler.add_job(_job_reminders, "interval", hours=1)
     scheduler.start()
 
 
@@ -66,6 +76,7 @@ def create_app() -> FastAPI:
     app.include_router(booking.router)
     app.include_router(settings_router.router)
     app.include_router(blackout_router.router)
+    app.include_router(notifications_router.router)
 
     # Start the hold-expiry sweep scheduler only in production deployments.
     # Gated by settings.enable_hold_scheduler so the test suite (which sets

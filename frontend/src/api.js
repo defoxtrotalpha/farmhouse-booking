@@ -501,6 +501,42 @@ export async function updateSettings(patch) {
 }
 
 // ---------------------------------------------------------------------------
+// Notifications (#27)
+// ---------------------------------------------------------------------------
+
+/** List the current user's notifications, newest first. */
+export async function listNotifications({ unread, limit = 50 } = {}) {
+  const params = new URLSearchParams();
+  if (unread !== undefined) params.set("unread", String(unread));
+  if (limit) params.set("limit", String(limit));
+  const qs = params.toString();
+  const res = await apiFetch(`/api/notifications${qs ? `?${qs}` : ""}`);
+  if (!res.ok) throw new Error("Failed to load notifications");
+  return res.json();
+}
+
+/** Get the unread notification count for the current user. */
+export async function unreadCount() {
+  const res = await apiFetch("/api/notifications/unread-count");
+  if (!res.ok) throw new Error("Failed to load unread count");
+  return res.json();
+}
+
+/** Mark a single notification read. */
+export async function markNotificationRead(id) {
+  const res = await apiFetch(`/api/notifications/${id}/read`, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to mark notification read");
+  return res.json();
+}
+
+/** Mark all of the current user's notifications read. */
+export async function markAllNotificationsRead() {
+  const res = await apiFetch("/api/notifications/read-all", { method: "POST" });
+  if (!res.ok) throw new Error("Failed to mark all read");
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
 // Blackout date endpoints (slice #29)
 // ---------------------------------------------------------------------------
 

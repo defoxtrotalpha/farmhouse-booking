@@ -15,6 +15,7 @@ from app.models.policy import Policy  # noqa: F401
 from app.models.booking import Booking  # noqa: F401
 from app.models.settings import SystemSettings  # noqa: F401
 from app.models.blackout import BlackoutDate  # noqa: F401
+from app.models.notification import Notification  # noqa: F401
 
 __all__ = ["Base", "User", "Farmhouse", "ActivityLog", "Policy", "Booking",
-           "SystemSettings", "BlackoutDate"]
+           "SystemSettings", "BlackoutDate", "Notification"]

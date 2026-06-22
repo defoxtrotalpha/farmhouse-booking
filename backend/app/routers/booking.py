@@ -34,6 +34,7 @@ from app.services.activity import log_activity
 from app.services.booking_engine import find_booked_conflict, find_overlapping_unresolved
 from app.services.booking_rules import validate_booking_window
 from app.services.hold_expiry import is_hold_expired
+from app.services.notifications import dispatch_booking_event
 
 router = APIRouter(prefix="/api", tags=["bookings"])
 
@@ -130,6 +131,14 @@ def create_hold(
         target_type="booking",
         target_id=booking.id,
     )
+    # NOTIFY: admins of a new hold (wired in #27)
+    dispatch_booking_event(
+        db,
+        type="hold.created",
+        booking=booking,
+        actor_id=current_user.id,
+        critical=True,
+    )
     db.commit()
     db.refresh(booking)
     return booking
@@ -198,6 +207,14 @@ def submit_booking(
         action="request.submitted",
         target_type="booking",
         target_id=booking_id,
+    )
+    # NOTIFY: admins of a submitted request (wired in #27)
+    dispatch_booking_event(
+        db,
+        type="request.submitted",
+        booking=booking,
+        actor_id=current_user.id,
+        critical=True,
     )
     db.commit()
     db.refresh(booking)
@@ -349,6 +366,14 @@ def approve_booking(
             target_type="booking",
             target_id=booking_id,
         )
+        # NOTIFY: bookie + admins of approval (wired in #27)
+        dispatch_booking_event(
+            db,
+            type="booking.approved",
+            booking=booking,
+            actor_id=admin.id,
+            critical=True,
+        )
         db.commit()
     db.refresh(booking)
     return booking
@@ -436,6 +461,13 @@ def reject_batch(
         booking.reason     = body.reason
 
         # NOTIFY: affected bookie on rejection (wired in #27)
+        dispatch_booking_event(
+            db,
+            type="request.rejected",
+            booking=booking,
+            actor_id=admin.id,
+            critical=True,
+        )
         log_activity(
             db,
             actor_id=admin.id,
@@ -496,6 +528,13 @@ def reject_booking(
     booking.reason     = body.reason
 
     # NOTIFY: affected bookie on rejection (wired in #27)
+    dispatch_booking_event(
+        db,
+        type="request.rejected",
+        booking=booking,
+        actor_id=admin.id,
+        critical=True,
+    )
     log_activity(
         db,
         actor_id=admin.id,
@@ -554,6 +593,13 @@ def cancel_booking(
     booking.cancel_reason = body.reason
 
     # NOTIFY: admin canceled booking (wired in #27)
+    dispatch_booking_event(
+        db,
+        type="booking.canceled",
+        booking=booking,
+        actor_id=admin.id,
+        critical=True,
+    )
     log_activity(
         db,
         actor_id=admin.id,
@@ -610,7 +656,14 @@ def withdraw_booking(
     booking.cancel_requested_by = current_user.id
     booking.cancel_reason       = body.reason if (body.reason and body.reason.strip()) else "withdrawn by bookie"
 
-    # NOTIFY: bookie withdrew booking (wired in #27)
+    # NOTIFY: bookie withdrew booking (wired in #27) — non-critical (in-app only)
+    dispatch_booking_event(
+        db,
+        type="booking.withdrawn",
+        booking=booking,
+        actor_id=current_user.id,
+        critical=False,
+    )
     log_activity(
         db,
         actor_id=current_user.id,
@@ -679,6 +732,13 @@ def request_cancel(
     booking.cancel_reason        = body.reason
 
     # NOTIFY: bookie requested cancellation (wired in #27)
+    dispatch_booking_event(
+        db,
+        type="booking.cancel_requested",
+        booking=booking,
+        actor_id=current_user.id,
+        critical=True,
+    )
     log_activity(
         db,
         actor_id=current_user.id,
@@ -739,6 +799,13 @@ def confirm_cancel(
     booking.decided_at  = now
 
     # NOTIFY: admin confirmed cancellation (wired in #27)
+    dispatch_booking_event(
+        db,
+        type="booking.cancel_confirmed",
+        booking=booking,
+        actor_id=admin.id,
+        critical=True,
+    )
     log_activity(
         db,
         actor_id=admin.id,
