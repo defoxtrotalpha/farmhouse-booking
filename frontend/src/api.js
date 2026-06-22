@@ -74,7 +74,11 @@ export async function login(email, password) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw Object.assign(new Error(err.detail ?? "Login failed"), { status: res.status });
+    const detail = err.detail;
+    const msg = Array.isArray(detail)
+      ? detail.map((e) => e.msg ?? String(e)).join("; ")
+      : (detail ?? "Login failed");
+    throw Object.assign(new Error(msg), { status: res.status });
   }
   const data = await res.json();
   tokens.set(data.access_token, data.refresh_token);
@@ -459,3 +463,93 @@ export async function confirmCancel(bookingId) {
   }
   return res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Settings endpoints (slice #29)
+// ---------------------------------------------------------------------------
+
+/** Fetch system settings (any authenticated user). */
+export async function getSettings() {
+  const res = await apiFetch("/api/settings");
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? "Failed to load settings");
+  }
+  return res.json();
+}
+
+/**
+ * Partially update system settings (admin only).
+ * @param {Object} patch  Any subset of SettingsPatch fields.
+ * @returns {Promise<Object>} Updated SettingsRead
+ */
+export async function updateSettings(patch) {
+  const res = await apiFetch("/api/settings", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const detail = err.detail;
+    const msg = Array.isArray(detail)
+      ? detail.map((e) => e.msg ?? String(e)).join("; ")
+      : (detail ?? "Failed to update settings");
+    throw Object.assign(new Error(msg), { status: res.status });
+  }
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Blackout date endpoints (slice #29)
+// ---------------------------------------------------------------------------
+
+/**
+ * List blackout dates.
+ * @param {{ farmhouseId?: number }} [opts]
+ * @returns {Promise<Array>} [BlackoutRead]
+ */
+export async function listBlackouts({ farmhouseId } = {}) {
+  const qs = farmhouseId != null ? `?farmhouse_id=${farmhouseId}` : "";
+  const res = await apiFetch(`/api/blackouts${qs}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? "Failed to load blackouts");
+  }
+  return res.json();
+}
+
+/**
+ * Create a blackout date range (admin only).
+ * @param {{ farmhouse_id?: number|null, start_date: string, end_date: string, reason?: string }} data
+ * @returns {Promise<Object>} BlackoutRead
+ */
+export async function createBlackout(data) {
+  const res = await apiFetch("/api/blackouts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const detail = err.detail;
+    const msg = Array.isArray(detail)
+      ? detail.map((e) => e.msg ?? String(e)).join("; ")
+      : (detail ?? "Failed to create blackout");
+    throw Object.assign(new Error(msg), { status: res.status });
+  }
+  return res.json();
+}
+
+/**
+ * Delete a blackout date by id (admin only).
+ * @param {number} id
+ */
+export async function deleteBlackout(id) {
+  const res = await apiFetch(`/api/blackouts/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to delete blackout"), { status: res.status });
+  }
+}
+

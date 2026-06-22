@@ -13,6 +13,8 @@ from app.routers import activity
 from app.routers import policy
 from app.routers import availability
 from app.routers import booking
+from app.routers import settings as settings_router
+from app.routers import blackout as blackout_router
 
 settings = get_settings()
 
@@ -62,6 +64,8 @@ def create_app() -> FastAPI:
     app.include_router(policy.router)
     app.include_router(availability.router)
     app.include_router(booking.router)
+    app.include_router(settings_router.router)
+    app.include_router(blackout_router.router)
 
     # Start the hold-expiry sweep scheduler only in production deployments.
     # Gated by settings.enable_hold_scheduler so the test suite (which sets

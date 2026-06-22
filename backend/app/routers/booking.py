@@ -24,6 +24,7 @@ from app.db import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.booking import Booking
 from app.models.farmhouse import Farmhouse
+from app.models.settings import get_or_create_settings
 from app.schemas.booking import (
     BookingRead, HoldRequest, SubmitRequest,
     RejectRequest, RejectBatchRequest, RejectBatchResponse,
@@ -31,6 +32,7 @@ from app.schemas.booking import (
 )
 from app.services.activity import log_activity
 from app.services.booking_engine import find_booked_conflict, find_overlapping_unresolved
+from app.services.booking_rules import validate_booking_window
 from app.services.hold_expiry import is_hold_expired
 
 router = APIRouter(prefix="/api", tags=["bookings"])
@@ -46,8 +48,9 @@ _approve_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Constants
-# Slice #29 will source DEFAULT_HOLD_HOURS from the settings table.
-# Until then, keep it here as a single named constant so it is easy to replace.
+# Slice #29 sources hold duration from the DB-backed SystemSettings singleton.
+# DEFAULT_HOLD_HOURS is kept as a fallback constant in case the DB row is
+# unreachable, but the primary source is get_or_create_settings(db).hold_duration_hours.
 # ---------------------------------------------------------------------------
 DEFAULT_HOLD_HOURS = 24
 
@@ -96,7 +99,18 @@ def create_hold(
     if fh.status != "active":
         raise HTTPException(status_code=400, detail="Farmhouse is not active")
 
+    # ── Business rule validation (slice #29) ────────────────────────────────
+    # Checks: min advance notice, blackout dates, operating hours.
+    # The "start_at in the future" guard above is intentionally NOT repeated
+    # here to avoid a double-check conflict (see booking_rules.py module docs).
+    validate_booking_window(db, farmhouse=fh, start_at=start_at, end_at=end_at, now=now)
+
     # ── Create hold ─────────────────────────────────────────────────────────
+    # Source hold duration from the DB-backed SystemSettings singleton (slice #29).
+    # Falls back to DEFAULT_HOLD_HOURS if get_or_create_settings raises unexpectedly.
+    db_settings = get_or_create_settings(db)
+    hold_hours = db_settings.hold_duration_hours
+
     booking = Booking(
         farmhouse_id=fh.id,
         bookie_id=current_user.id,
@@ -104,7 +118,7 @@ def create_hold(
         start_at=start_at,
         end_at=end_at,
         buffer_minutes_snapshot=fh.buffer_minutes,
-        expires_at=now + timedelta(hours=get_settings().hold_duration_hours),
+        expires_at=now + timedelta(hours=hold_hours),
     )
     db.add(booking)
     db.flush()  # assigns booking.id before we log it
@@ -153,6 +167,20 @@ def submit_booking(
         )
     if booking.bookie_id != current_user.id and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="You do not have permission to submit this booking")
+
+    # ── Re-validate business rules (slice #29) ──────────────────────────────
+    # Rules may have changed since the hold was placed (e.g. a new blackout was
+    # added or operating hours were updated).  Re-run the same checks so the
+    # booking cannot slip through a window that has since closed.
+    _fh: Farmhouse | None = db.get(Farmhouse, booking.farmhouse_id)
+    if _fh is not None:
+        validate_booking_window(
+            db,
+            farmhouse=_fh,
+            start_at=booking.start_at,
+            end_at=booking.end_at,
+            now=_now,
+        )
 
     # ── Attach client details ───────────────────────────────────────────────
     booking.client_name    = body.client_name

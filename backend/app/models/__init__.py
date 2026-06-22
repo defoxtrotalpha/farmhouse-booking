@@ -13,5 +13,8 @@ from app.models.farmhouse import Farmhouse  # noqa: F401
 from app.models.activity import ActivityLog  # noqa: F401
 from app.models.policy import Policy  # noqa: F401
 from app.models.booking import Booking  # noqa: F401
+from app.models.settings import SystemSettings  # noqa: F401
+from app.models.blackout import BlackoutDate  # noqa: F401
 
-__all__ = ["Base", "User", "Farmhouse", "ActivityLog", "Policy", "Booking"]
+__all__ = ["Base", "User", "Farmhouse", "ActivityLog", "Policy", "Booking",
+           "SystemSettings", "BlackoutDate"]

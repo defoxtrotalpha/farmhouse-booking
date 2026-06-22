@@ -8,6 +8,8 @@ import PoliciesPage from "./Policies.jsx";
 import CalendarPage from "./CalendarPage.jsx";
 import ApproveQueue from "./ApproveQueue.jsx";
 import MyBookings from "./MyBookings.jsx";
+import SettingsPage from "./Settings.jsx";
+import BlackoutsManager from "./BlackoutsManager.jsx";
 
 // ---------------------------------------------------------------------------
 // Login form
@@ -118,6 +120,8 @@ function AppShell({ user, onLogout }) {
         {user.role === "admin" && navBtn("invites", "Invite Bookie")}
         {navBtn("activity", "Activity Log")}
         {navBtn("policies", "Policies")}
+        {user.role === "admin" && navBtn("settings", "Settings")}
+        {user.role === "admin" && navBtn("blackouts", "Blackouts")}
       </nav>
 
       {tab === "dashboard" && (        <section style={{ padding: "1rem 1.25rem", border: "1px solid #e5e5e5", borderRadius: 12 }}>
@@ -141,6 +145,8 @@ function AppShell({ user, onLogout }) {
       {tab === "invites" && user.role === "admin" && <InviteBookiePage />}
       {tab === "activity" && <ActivityLogPage user={user} />}
       {tab === "policies" && <PoliciesPage user={user} />}
+      {tab === "settings"  && user.role === "admin" && <SettingsPage />}
+      {tab === "blackouts" && user.role === "admin" && <BlackoutsManager />}
     </main>
   );
 }
