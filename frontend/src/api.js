@@ -97,3 +97,40 @@ export async function getHealth() {
   return res.json();
 }
 
+// ---------------------------------------------------------------------------
+// Farmhouse endpoints
+// ---------------------------------------------------------------------------
+
+export async function listFarmhouses({ includeDisabled = false } = {}) {
+  const qs = includeDisabled ? "?include_disabled=true" : "";
+  const res = await apiFetch(`/api/farmhouses${qs}`);
+  if (!res.ok) throw new Error("Failed to load farmhouses");
+  return res.json();
+}
+
+export async function createFarmhouse(data) {
+  const res = await apiFetch("/api/farmhouses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? "Failed to create farmhouse");
+  }
+  return res.json();
+}
+
+export async function updateFarmhouse(id, data) {
+  const res = await apiFetch(`/api/farmhouses/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? "Failed to update farmhouse");
+  }
+  return res.json();
+}
+

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getHealth, getMe, login, tokens } from "./api.js";
+import FarmhousesPage from "./Farmhouses.jsx";
 
 // ---------------------------------------------------------------------------
 // Login form
@@ -67,33 +68,61 @@ function LoginPage({ onLogin }) {
 function AppShell({ user, onLogout }) {
   const [health, setHealth] = useState(null);
   const [healthError, setHealthError] = useState(null);
+  const [tab, setTab] = useState("dashboard");
 
   useEffect(() => {
     getHealth().then(setHealth).catch((e) => setHealthError(e.message));
   }, []);
 
+  const navBtn = (id, label) => (
+    <button
+      key={id}
+      onClick={() => setTab(id)}
+      style={{
+        padding: "0.4rem 0.9rem",
+        cursor: "pointer",
+        background: "none",
+        border: "none",
+        borderBottom: tab === id ? "2px solid #333" : "2px solid transparent",
+        fontWeight: tab === id ? 600 : 400,
+        fontSize: "0.9rem",
+      }}
+    >
+      {label}
+    </button>
+  );
+
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 640, margin: "0 auto" }}>
+    <main style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 760, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <h1 style={{ margin: 0 }}>Farmhouse Booking</h1>
         <button onClick={onLogout} style={{ cursor: "pointer" }}>Sign out</button>
       </div>
-      <p style={{ color: "#666" }}>
+      <p style={{ color: "#666", marginTop: "0.25rem" }}>
         Signed in as <strong>{user.name || user.email}</strong> ({user.role})
       </p>
 
-      <section style={{ marginTop: "2rem", padding: "1rem 1.25rem", border: "1px solid #e5e5e5", borderRadius: 12 }}>
-        <h2 style={{ margin: 0, fontSize: "1rem" }}>System status</h2>
-        {healthError && <p style={{ color: "#b00020" }}>Backend unreachable: {healthError}</p>}
-        {!healthError && !health && <p>Checking…</p>}
-        {health && (
-          <ul style={{ listStyle: "none", padding: 0 }}>
-            <li>API: <strong>{health.status}</strong></li>
-            <li>Database: <strong>{health.database}</strong></li>
-            <li>Timezone: <strong>{health.timezone}</strong></li>
-          </ul>
-        )}
-      </section>
+      <nav style={{ borderBottom: "1px solid #e5e5e5", display: "flex", gap: "0.25rem", marginBottom: "1.5rem" }}>
+        {navBtn("dashboard", "Dashboard")}
+        {navBtn("farmhouses", "Farmhouses")}
+      </nav>
+
+      {tab === "dashboard" && (
+        <section style={{ padding: "1rem 1.25rem", border: "1px solid #e5e5e5", borderRadius: 12 }}>
+          <h2 style={{ margin: 0, fontSize: "1rem" }}>System status</h2>
+          {healthError && <p style={{ color: "#b00020" }}>Backend unreachable: {healthError}</p>}
+          {!healthError && !health && <p>Checking…</p>}
+          {health && (
+            <ul style={{ listStyle: "none", padding: 0 }}>
+              <li>API: <strong>{health.status}</strong></li>
+              <li>Database: <strong>{health.database}</strong></li>
+              <li>Timezone: <strong>{health.timezone}</strong></li>
+            </ul>
+          )}
+        </section>
+      )}
+
+      {tab === "farmhouses" && <FarmhousesPage user={user} />}
     </main>
   );
 }
