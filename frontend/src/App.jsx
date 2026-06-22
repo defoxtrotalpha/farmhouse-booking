@@ -4,6 +4,7 @@ import FarmhousesPage from "./Farmhouses.jsx";
 import InviteBookiePage from "./InviteBookie.jsx";
 import SetPasswordPage from "./SetPassword.jsx";
 import ActivityLogPage from "./ActivityLog.jsx";
+import PoliciesPage from "./Policies.jsx";
 
 // ---------------------------------------------------------------------------
 // Login form
@@ -110,6 +111,7 @@ function AppShell({ user, onLogout }) {
         {navBtn("farmhouses", "Farmhouses")}
         {user.role === "admin" && navBtn("invites", "Invite Bookie")}
         {navBtn("activity", "Activity Log")}
+        {navBtn("policies", "Policies")}
       </nav>
 
       {tab === "dashboard" && (
@@ -130,6 +132,7 @@ function AppShell({ user, onLogout }) {
       {tab === "farmhouses" && <FarmhousesPage user={user} />}
       {tab === "invites" && user.role === "admin" && <InviteBookiePage />}
       {tab === "activity" && <ActivityLogPage user={user} />}
+      {tab === "policies" && <PoliciesPage user={user} />}
     </main>
   );
 }

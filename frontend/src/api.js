@@ -166,6 +166,42 @@ export async function setPassword(token, password) {
 }
 
 // ---------------------------------------------------------------------------
+// Policy endpoints
+// ---------------------------------------------------------------------------
+
+export async function listPolicies() {
+  const res = await apiFetch("/api/policies");
+  if (!res.ok) throw new Error("Failed to load policies");
+  return res.json();
+}
+
+export async function createPolicy(data) {
+  const res = await apiFetch("/api/policies", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? "Failed to create policy");
+  }
+  return res.json();
+}
+
+export async function updatePolicy(id, data) {
+  const res = await apiFetch(`/api/policies/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? "Failed to update policy");
+  }
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
 // Activity Log endpoints
 // ---------------------------------------------------------------------------
 
