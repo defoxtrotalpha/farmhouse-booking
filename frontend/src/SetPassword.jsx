@@ -32,57 +32,61 @@ export default function SetPasswordPage() {
 
   if (!token) {
     return (
-      <main style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 400, margin: "4rem auto" }}>
-        <h1>Invalid Link</h1>
-        <p>No invite token found. Please use the link from your invitation email.</p>
-      </main>
+      <div className="auth-wrap">
+        <div className="auth-card card">
+          <h2 style={{ marginTop: 0 }}>Invalid link</h2>
+          <p style={{ color: "var(--muted)" }}>No invite token found. Please use the link from your invitation email.</p>
+        </div>
+      </div>
     );
   }
 
   if (done) {
     return (
-      <main style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 400, margin: "4rem auto" }}>
-        <h1>Password Set!</h1>
-        <p>Your account is now active.</p>
-        <a href="/" style={{ color: "#1a73e8" }}>Go to login →</a>
-      </main>
+      <div className="auth-wrap">
+        <div className="auth-card card">
+          <h2 style={{ marginTop: 0 }}>Password set 🎉</h2>
+          <p style={{ color: "var(--muted)" }}>Your account is now active.</p>
+          <a href="/" className="btn" style={{ textDecoration: "none" }}>Go to login →</a>
+        </div>
+      </div>
     );
   }
 
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 400, margin: "4rem auto" }}>
-      <h1 style={{ marginBottom: "0.25rem" }}>Set Your Password</h1>
-      <p style={{ color: "#666", marginTop: 0 }}>Choose a password to activate your account.</p>
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-        <label>
-          New Password
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPass(e.target.value)}
-            required
-            minLength={8}
-            autoFocus
-            style={{ display: "block", width: "100%", marginTop: "0.25rem", padding: "0.5rem", boxSizing: "border-box" }}
-          />
-        </label>
-        <label>
-          Confirm Password
-          <input
-            type="password"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            required
-            style={{ display: "block", width: "100%", marginTop: "0.25rem", padding: "0.5rem", boxSizing: "border-box" }}
-          />
-        </label>
-        {status && (
-          <p style={{ color: "#b00020", margin: 0 }}>{status.msg}</p>
-        )}
-        <button type="submit" disabled={loading} style={{ padding: "0.6rem", cursor: "pointer" }}>
-          {loading ? "Setting password…" : "Set Password"}
-        </button>
-      </form>
-    </main>
+    <div className="auth-wrap">
+      <div className="auth-card card">
+        <h2 style={{ margin: "0 0 0.25rem" }}>Set your password</h2>
+        <p style={{ color: "var(--muted)", marginTop: 0, fontSize: "0.9rem" }}>Choose a password to activate your account.</p>
+        <form onSubmit={handleSubmit}>
+          <label className="field">
+            <span>New password</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPass(e.target.value)}
+              required
+              minLength={8}
+              autoFocus
+              autoComplete="new-password"
+            />
+          </label>
+          <label className="field">
+            <span>Confirm password</span>
+            <input
+              type="password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              required
+              autoComplete="new-password"
+            />
+          </label>
+          {status && <div className="alert alert-error">{status.msg}</div>}
+          <button type="submit" disabled={loading} className="btn" style={{ width: "100%", marginTop: "0.25rem" }}>
+            {loading ? "Setting password…" : "Set password"}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }

@@ -17,6 +17,14 @@ import ReportsPage from "./Reports.jsx";
 // Login form
 // ---------------------------------------------------------------------------
 
+function BrandMark({ size = 34 }) {
+  return (
+    <span className="brand-mark" style={{ width: size, height: size }} aria-hidden="true">
+      🌿
+    </span>
+  );
+}
+
 function LoginPage({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -38,37 +46,46 @@ function LoginPage({ onLogin }) {
   }
 
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 400, margin: "4rem auto" }}>
-      <h1 style={{ marginBottom: "0.25rem" }}>Farmhouse Booking</h1>
-      <p style={{ color: "#666", marginTop: 0 }}>Sign in to continue</p>
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-        <label>
-          Email
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoFocus
-            style={{ display: "block", width: "100%", marginTop: "0.25rem", padding: "0.5rem", boxSizing: "border-box" }}
-          />
-        </label>
-        <label>
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            style={{ display: "block", width: "100%", marginTop: "0.25rem", padding: "0.5rem", boxSizing: "border-box" }}
-          />
-        </label>
-        {error && <p style={{ color: "#b00020", margin: 0 }}>{error}</p>}
-        <button type="submit" disabled={loading} style={{ padding: "0.6rem", cursor: "pointer" }}>
-          {loading ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
-    </main>
+    <div className="auth-wrap">
+      <div className="auth-card card">
+        <div className="auth-brand">
+          <BrandMark size={40} />
+          <div>
+            <div className="brand-title">Farmhouse Booking</div>
+            <div className="brand-sub">Private estate reservations</div>
+          </div>
+        </div>
+        <h2 style={{ margin: "0 0 0.25rem" }}>Welcome back</h2>
+        <p style={{ color: "var(--muted)", marginTop: 0, fontSize: "0.9rem" }}>Sign in to continue</p>
+        <form onSubmit={handleSubmit}>
+          <label className="field">
+            <span>Email</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoFocus
+              autoComplete="username"
+            />
+          </label>
+          <label className="field">
+            <span>Password</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+            />
+          </label>
+          {error && <div className="alert alert-error">{error}</div>}
+          <button type="submit" disabled={loading} className="btn" style={{ width: "100%", marginTop: "0.25rem" }}>
+            {loading ? "Signing in…" : "Sign in"}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -85,76 +102,81 @@ function AppShell({ user, onLogout }) {
     getHealth().then(setHealth).catch((e) => setHealthError(e.message));
   }, []);
 
-  const navBtn = (id, label) => (
-    <button
-      key={id}
-      onClick={() => setTab(id)}
-      style={{
-        padding: "0.4rem 0.9rem",
-        cursor: "pointer",
-        background: "none",
-        border: "none",
-        borderBottom: tab === id ? "2px solid #333" : "2px solid transparent",
-        fontWeight: tab === id ? 600 : 400,
-        fontSize: "0.9rem",
-      }}
-    >
-      {label}
-    </button>
-  );
+  const tabs = [
+    { id: "dashboard", label: "Dashboard" },
+    { id: "calendar", label: "Calendar" },
+    { id: "bookings", label: "My Bookings" },
+    { id: "farmhouses", label: "Farmhouses" },
+    { id: "approve", label: "Approvals", admin: true },
+    { id: "reports", label: "Reports", admin: true },
+    { id: "invites", label: "Invite Bookie", admin: true },
+    { id: "activity", label: "Activity Log" },
+    { id: "policies", label: "Policies" },
+    { id: "settings", label: "Settings", admin: true },
+    { id: "blackouts", label: "Blackouts", admin: true },
+  ].filter((t) => !t.admin || user.role === "admin");
 
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 760, margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <h1 style={{ margin: 0 }}>Farmhouse Booking</h1>
-        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-          <NotificationBell />
-          <button onClick={onLogout} style={{ cursor: "pointer" }}>Sign out</button>
+    <div className="app-bg">
+      <header className="app-header">
+        <div className="app-header-inner">
+          <div className="brand">
+            <BrandMark />
+            <div>
+              <div className="brand-title">Farmhouse Booking</div>
+              <div className="brand-sub">Private estate reservations</div>
+            </div>
+          </div>
+          <div className="header-actions">
+            <NotificationBell />
+            <span className="user-pill">
+              <span className="email">{user.name || user.email}</span>
+              <span className="role">{user.role}</span>
+            </span>
+            <button onClick={onLogout} className="btn btn-ghost btn-sm">Sign out</button>
+          </div>
         </div>
-      </div>
-      <p style={{ color: "#666", marginTop: "0.25rem" }}>
-        Signed in as <strong>{user.name || user.email}</strong> ({user.role})
-      </p>
+        <nav className="app-nav">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`tab${tab === t.id ? " active" : ""}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      </header>
 
-      <nav style={{ borderBottom: "1px solid #e5e5e5", display: "flex", gap: "0.25rem", marginBottom: "1.5rem" }}>
-        {navBtn("dashboard", "Dashboard")}
-        {navBtn("calendar", "Calendar")}
-        {navBtn("bookings", "My Bookings")}
-        {navBtn("farmhouses", "Farmhouses")}
-        {user.role === "admin" && navBtn("approve", "Approvals")}
-        {user.role === "admin" && navBtn("invites", "Invite Bookie")}
-        {navBtn("activity", "Activity Log")}
-        {navBtn("policies", "Policies")}
-        {user.role === "admin" && navBtn("settings", "Settings")}
-        {user.role === "admin" && navBtn("blackouts", "Blackouts")}
-        {user.role === "admin" && navBtn("reports", "Reports")}
-      </nav>
+      <main className="app-main" key={tab}>
+        {tab === "dashboard" && (
+          <section className="card" style={{ maxWidth: 480 }}>
+            <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>System status</h2>
+            {healthError && <div className="alert alert-error">Backend unreachable: {healthError}</div>}
+            {!healthError && !health && <p style={{ color: "var(--muted)" }}>Checking…</p>}
+            {health && (
+              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: "0.4rem" }}>
+                <li>API: <strong>{health.status}</strong></li>
+                <li>Database: <strong>{health.database}</strong></li>
+                <li>Timezone: <strong>{health.timezone}</strong></li>
+              </ul>
+            )}
+          </section>
+        )}
 
-      {tab === "dashboard" && (        <section style={{ padding: "1rem 1.25rem", border: "1px solid #e5e5e5", borderRadius: 12 }}>
-          <h2 style={{ margin: 0, fontSize: "1rem" }}>System status</h2>
-          {healthError && <p style={{ color: "#b00020" }}>Backend unreachable: {healthError}</p>}
-          {!healthError && !health && <p>Checking…</p>}
-          {health && (
-            <ul style={{ listStyle: "none", padding: 0 }}>
-              <li>API: <strong>{health.status}</strong></li>
-              <li>Database: <strong>{health.database}</strong></li>
-              <li>Timezone: <strong>{health.timezone}</strong></li>
-            </ul>
-          )}
-        </section>
-      )}
-
-      {tab === "farmhouses" && <FarmhousesPage user={user} />}
-      {tab === "bookings" && <MyBookings user={user} />}
-      {tab === "calendar" && <CalendarPage />}
-      {tab === "approve" && user.role === "admin" && <ApproveQueue />}
-      {tab === "invites" && user.role === "admin" && <InviteBookiePage />}
-      {tab === "activity" && <ActivityLogPage user={user} />}
-      {tab === "policies" && <PoliciesPage user={user} />}
-      {tab === "settings"  && user.role === "admin" && <SettingsPage />}
-      {tab === "blackouts" && user.role === "admin" && <BlackoutsManager />}
-      {tab === "reports"   && user.role === "admin" && <ReportsPage />}
-    </main>
+        {tab === "farmhouses" && <FarmhousesPage user={user} />}
+        {tab === "bookings" && <MyBookings user={user} />}
+        {tab === "calendar" && <CalendarPage />}
+        {tab === "approve" && user.role === "admin" && <ApproveQueue />}
+        {tab === "reports" && user.role === "admin" && <ReportsPage />}
+        {tab === "invites" && user.role === "admin" && <InviteBookiePage />}
+        {tab === "activity" && <ActivityLogPage user={user} />}
+        {tab === "policies" && <PoliciesPage user={user} />}
+        {tab === "settings" && user.role === "admin" && <SettingsPage />}
+        {tab === "blackouts" && user.role === "admin" && <BlackoutsManager />}
+      </main>
+    </div>
   );
 }
 

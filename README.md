@@ -2,13 +2,13 @@
 
 A private, invite-only web application for managing farmhouse / event-venue bookings. Authorized agents ("Bookies") request specific time slots on a shared calendar; Admins referee competing requests and approve exactly one per slot, making confirmed double bookings impossible.
 
-> **Status:** Planning / pre-implementation. The product spec lives in [issues/prd.md](issues/prd.md) and the work is sliced into tracer-bullet issues under [issues/](issues/).
+> **Status:** v1 implemented. The product spec lives in [issues/prd.md](issues/prd.md) and the work was sliced into tracer-bullet issues under [issues/](issues/).
 
 ## Key Concepts
 
 - **Roles:** Admins (manage bookies, farmhouses, settings; approve/reject/cancel) and Bookies (view calendar, hold slots, submit booking requests).
 - **Competitive holds:** Many bookies may request the same slot. Holds and Pending requests do **not** reserve exclusively — only an approved **Booked** does.
-- **Zero double bookings:** Enforced at the database level via a PostgreSQL range-exclusion constraint on confirmed bookings.
+- **Zero double bookings:** Enforced in the application layer — an overlap check guarded by a process-wide lock at approval time ensures only one `Booked` row can exist per overlapping slot (v1 uses SQLite, which has no range-exclusion constraint).
 - **Booking lifecycle:** `Hold → Pending → Booked / Rejected`, plus `Canceled` and `Expired`.
 - **Single business timezone:** All event times are Asia/Karachi; stored as UTC.
 
@@ -18,20 +18,19 @@ A private, invite-only web application for managing farmhouse / event-venue book
 |-------|------------|
 | Frontend | React (Vite) + FullCalendar |
 | Backend | FastAPI (Python) + SQLAlchemy + Alembic |
-| Database | PostgreSQL (`tstzrange` exclusion constraint) |
+| Database | SQLite (v1, local file `booking.db`) |
 | Auth | JWT (access + refresh), bcrypt |
 | Background jobs | APScheduler (in-process) |
-| Email | SMTP provider (transactional) |
+| Email | Logging stub (v1) — links written to the app log |
 | Real-time | Short polling (no WebSockets) |
-| Deployment | Docker Compose (portable) |
+| Deployment | Local (uvicorn + Vite); no Docker in v1 |
 
 ## Repository Structure
 
 ```
-issues/                 Product spec (prd.md) and tracer-bullet implementation issues
-backend/   (planned)    FastAPI app, models, migrations
-frontend/  (planned)    React (Vite) app
-docker-compose.yml (planned)
+issues/      Product spec (prd.md) and tracer-bullet implementation issues
+backend/     FastAPI app, models, services, routers, Alembic migrations, tests
+frontend/    React (Vite) app
 ```
 
 ## Scope
@@ -42,4 +41,42 @@ Out of scope: online payments, SMS/WhatsApp, multi-language UI, client self-serv
 
 ## Getting Started
 
-Implementation has not started yet. See [issues/01-walking-skeleton.md](issues/01-walking-skeleton.md) for the first slice (Docker Compose + FastAPI + React skeleton).
+### Backend
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+alembic upgrade head        # create / migrate booking.db (SQLite)
+uvicorn app.main:app --reload
+```
+
+The API is served at http://localhost:8000 (docs at `/docs`).
+
+### Frontend
+
+```powershell
+cd frontend
+npm install
+npm run dev                 # Vite dev server, proxies /api -> localhost:8000
+```
+
+### Tests
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+## v1 Deviations & Operational Notes
+
+- **Database:** v1 uses a local **SQLite** file (`booking.db`) instead of PostgreSQL. Because SQLite has no range-exclusion constraint, no-double-booking is enforced in the application layer (overlap check inside a `threading.Lock` at approval time).
+- **Email:** v1 ships a logging email stub — invite and password-reset links are written to the application log rather than sent over SMTP.
+- **Deployment:** No Docker in v1; run the backend (uvicorn) and frontend (Vite) directly as shown above.
+- **Polling intervals** (short-polling, no WebSockets):
+  - Calendar availability refresh: **15 s** (`POLL_INTERVAL_MS` in `frontend/src/CalendarPage.jsx`).
+  - Notification unread-count: **30 s** (`POLL_MS` in `frontend/src/NotificationBell.jsx`).
+- **Background jobs** (APScheduler, gated on `ENABLE_HOLD_SCHEDULER`): hold-expiry sweep and a 1-hour upcoming-booking reminder job.
+- **Timezone:** all event times are Asia/Karachi (UTC+5), stored as UTC.
+- **Secrets:** JWT secret and other config come from environment / `app/config.py`; no secrets are committed. Invite and reset tokens are single-use and expire.
