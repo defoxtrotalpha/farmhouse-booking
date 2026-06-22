@@ -11,6 +11,7 @@ import MyBookings from "./MyBookings.jsx";
 import SettingsPage from "./Settings.jsx";
 import BlackoutsManager from "./BlackoutsManager.jsx";
 import NotificationBell from "./NotificationBell.jsx";
+import ReportsPage from "./Reports.jsx";
 
 // ---------------------------------------------------------------------------
 // Login form
@@ -126,6 +127,7 @@ function AppShell({ user, onLogout }) {
         {navBtn("policies", "Policies")}
         {user.role === "admin" && navBtn("settings", "Settings")}
         {user.role === "admin" && navBtn("blackouts", "Blackouts")}
+        {user.role === "admin" && navBtn("reports", "Reports")}
       </nav>
 
       {tab === "dashboard" && (        <section style={{ padding: "1rem 1.25rem", border: "1px solid #e5e5e5", borderRadius: 12 }}>
@@ -151,6 +153,7 @@ function AppShell({ user, onLogout }) {
       {tab === "policies" && <PoliciesPage user={user} />}
       {tab === "settings"  && user.role === "admin" && <SettingsPage />}
       {tab === "blackouts" && user.role === "admin" && <BlackoutsManager />}
+      {tab === "reports"   && user.role === "admin" && <ReportsPage />}
     </main>
   );
 }

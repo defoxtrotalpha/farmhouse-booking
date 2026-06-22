@@ -589,3 +589,100 @@ export async function deleteBlackout(id) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Reports & analytics endpoints (slice #30)
+// ---------------------------------------------------------------------------
+
+function _reportsQs(params) {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v != null && v !== "") qs.set(k, v);
+  });
+  const s = qs.toString();
+  return s ? `?${s}` : "";
+}
+
+/**
+ * Fetch summary report: booking counts by status + monthly + yearly breakdowns.
+ * @param {{ start?: string, end?: string }} [opts]
+ * @returns {Promise<{counts: Object, monthly: Array, yearly: Array}>}
+ */
+export async function getReportSummary({ start, end } = {}) {
+  const res = await apiFetch(`/api/reports/summary${_reportsQs({ start, end })}`);
+  if (!res.ok) throw new Error("Failed to load summary");
+  return res.json();
+}
+
+/**
+ * Fetch occupancy % per farmhouse.
+ * @param {{ start?: string, end?: string, farmhouse_id?: number }} [opts]
+ * @returns {Promise<Array>}
+ */
+export async function getOccupancy({ start, end, farmhouse_id } = {}) {
+  const res = await apiFetch(`/api/reports/occupancy${_reportsQs({ start, end, farmhouse_id })}`);
+  if (!res.ok) throw new Error("Failed to load occupancy");
+  return res.json();
+}
+
+/**
+ * Fetch bookie performance metrics.
+ * @param {{ start?: string, end?: string }} [opts]
+ * @returns {Promise<Array>}
+ */
+export async function getBookiePerformance({ start, end } = {}) {
+  const res = await apiFetch(`/api/reports/bookie-performance${_reportsQs({ start, end })}`);
+  if (!res.ok) throw new Error("Failed to load bookie performance");
+  return res.json();
+}
+
+/**
+ * Fetch booking trends time-series.
+ * @param {{ start?: string, end?: string, granularity?: string }} [opts]
+ * @returns {Promise<Array>}
+ */
+export async function getTrends({ start, end, granularity = "month" } = {}) {
+  const res = await apiFetch(`/api/reports/trends${_reportsQs({ start, end, granularity })}`);
+  if (!res.ok) throw new Error("Failed to load trends");
+  return res.json();
+}
+
+/**
+ * Search/filter the bookings list (admin report view).
+ * @param {{ farmhouse_id?, status?, start?, end?, bookie_id?, client? }} [opts]
+ * @returns {Promise<Array>}
+ */
+export async function searchBookingsReport({
+  farmhouse_id, status, start, end, bookie_id, client,
+} = {}) {
+  const res = await apiFetch(
+    `/api/reports/bookings${_reportsQs({ farmhouse_id, status, start, end, bookie_id, client })}`,
+  );
+  if (!res.ok) throw new Error("Failed to search bookings");
+  return res.json();
+}
+
+/**
+ * Download an export file (xlsx or pdf) and trigger browser save.
+ * @param {{ report: string, format: string, start?, end?, farmhouse_id?, status?, bookie_id?, client? }} opts
+ */
+export async function downloadReportExport({
+  report, format, start, end, farmhouse_id, status, bookie_id, client,
+} = {}) {
+  const res = await apiFetch(
+    `/api/reports/export${_reportsQs({ report, format, start, end, farmhouse_id, status, bookie_id, client })}`,
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? "Export failed");
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${report}.${format}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
