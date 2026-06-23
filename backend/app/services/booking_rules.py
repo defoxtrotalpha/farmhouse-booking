@@ -52,6 +52,7 @@ from sqlalchemy.orm import Session
 from app.models.blackout import BlackoutDate
 from app.models.farmhouse import Farmhouse
 from app.models.settings import get_or_create_settings
+from app.tenancy import tenant_clause
 
 _TZ = ZoneInfo("Asia/Karachi")
 _HHMMRE = re.compile(r"^\d{2}:\d{2}$")
@@ -108,6 +109,7 @@ def validate_booking_window(
     blackout = (
         db.query(BlackoutDate)
         .filter(
+            tenant_clause(BlackoutDate.tenant_id, farmhouse.tenant_id),
             or_(
                 BlackoutDate.farmhouse_id.is_(None),
                 BlackoutDate.farmhouse_id == farmhouse.id,

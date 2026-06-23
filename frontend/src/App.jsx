@@ -1,181 +1,502 @@
-import { useEffect, useState } from "react";
-import { getHealth, getMe, login, tokens } from "./api.js";
+import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { App as AntApp, Avatar, Button, Drawer, Dropdown, Form, Input, Modal } from "antd";
+import {
+  HomeOutlined,
+  CalendarOutlined,
+  ProfileOutlined,
+  CheckCircleOutlined,
+  ApartmentOutlined,
+  TeamOutlined,
+  BarChartOutlined,
+  HistoryOutlined,
+  FileTextOutlined,
+  SettingOutlined,
+  StopOutlined,
+  EllipsisOutlined,
+  LogoutOutlined,
+  LockOutlined,
+  MailOutlined,
+  UserOutlined,
+  BankOutlined,
+  ShopOutlined,
+  CrownOutlined,
+  ArrowRightOutlined,
+} from "@ant-design/icons";
+
+import { getMe, login, signupCompany, changePassword, tokens } from "./api.js";
+import { Brand, BrandSeal } from "./ui.jsx";
+
+import CalendarPage from "./CalendarPage.jsx";
+import BookingsPage from "./MyBookings.jsx";
 import FarmhousesPage from "./Farmhouses.jsx";
-import InviteBookiePage from "./InviteBookie.jsx";
-import SetPasswordPage from "./SetPassword.jsx";
+import ApproveQueue from "./ApproveQueue.jsx";
+import ReportsPage from "./Reports.jsx";
+import BookiesPage from "./Bookies.jsx";
+import UsersPage from "./Users.jsx";
 import ActivityLogPage from "./ActivityLog.jsx";
 import PoliciesPage from "./Policies.jsx";
-import CalendarPage from "./CalendarPage.jsx";
-import ApproveQueue from "./ApproveQueue.jsx";
-import MyBookings from "./MyBookings.jsx";
 import SettingsPage from "./Settings.jsx";
 import BlackoutsManager from "./BlackoutsManager.jsx";
+import OverviewPage from "./Overview.jsx";
+import SetPasswordPage from "./SetPassword.jsx";
 import NotificationBell from "./NotificationBell.jsx";
-import ReportsPage from "./Reports.jsx";
+import CompaniesPage from "./Companies.jsx";
+import GlobalAdminsPage from "./GlobalAdmins.jsx";
 
 // ---------------------------------------------------------------------------
-// Login form
+// Navigation model
 // ---------------------------------------------------------------------------
+const NAV = [
+  // Platform (global admin only)
+  { id: "companies", label: "Companies", icon: <ShopOutlined />, global: true, group: "Platform" },
+  { id: "globaladmins", label: "Global admins", icon: <CrownOutlined />, global: true, group: "Platform" },
+  // Company-scoped
+  { id: "overview", label: "Home", icon: <HomeOutlined />, group: "Booking" },
+  { id: "calendar", label: "Calendar", icon: <CalendarOutlined />, group: "Booking" },
+  { id: "bookings", label: "Bookings", icon: <ProfileOutlined />, group: "Booking" },
+  { id: "approve", label: "Approvals", icon: <CheckCircleOutlined />, admin: true, group: "Booking" },
+  { id: "farmhouses", label: "Estates", icon: <ApartmentOutlined />, group: "Company" },
+  { id: "bookies", label: "Bookies", icon: <TeamOutlined />, admin: true, group: "Company" },
+  { id: "users", label: "Users", icon: <UserOutlined />, group: "Company" },
+  { id: "reports", label: "Reports", icon: <BarChartOutlined />, admin: true, group: "Company" },
+  { id: "activity", label: "Activity", icon: <HistoryOutlined />, group: "Records" },
+  { id: "policies", label: "Policies", icon: <FileTextOutlined />, group: "Records" },
+  { id: "settings", label: "Settings", icon: <SettingOutlined />, admin: true, group: "Records" },
+  { id: "blackouts", label: "Blackouts", icon: <StopOutlined />, admin: true, group: "Records" },
+];
 
-function BrandMark({ size = 34 }) {
-  return (
-    <span className="brand-mark" style={{ width: size, height: size }} aria-hidden="true">
-      🌿
-    </span>
-  );
+function visibleNav(role) {
+  if (role === "global_admin") return NAV.filter((n) => n.global);
+  return NAV.filter((n) => !n.global && (!n.admin || role === "admin"));
 }
 
+// ---------------------------------------------------------------------------
+// Login
+// ---------------------------------------------------------------------------
 function LoginPage({ onLogin }) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState(null);
+  const { message } = AntApp.useApp();
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState("login"); // 'login' | 'signup'
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setError(null);
+  async function onFinish(values) {
     setLoading(true);
     try {
-      await login(email, password);
+      await login(values.tenant?.trim(), values.identifier.trim(), values.password);
       onLogin();
     } catch (err) {
-      setError(err.message ?? "Login failed");
+      message.error(err.message ?? "Sign in failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onSignup(values) {
+    setLoading(true);
+    try {
+      const res = await signupCompany({
+        company_name: values.company_name.trim(),
+        name: values.name.trim(),
+        email: values.email.trim(),
+        password: values.password,
+      });
+      message.success(
+        res?.message ||
+          "Your company request has been submitted for approval. You'll be able to sign in once a platform admin approves it.",
+        8,
+      );
+      setMode("login");
+    } catch (err) {
+      message.error(err.message ?? "Sign up failed");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="auth-wrap">
-      <div className="auth-card card">
-        <div className="auth-brand">
-          <BrandMark size={40} />
+    <div className="auth-stage">
+      <motion.aside
+        className="auth-aside"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5 }}
+      >
+        <div className="brand-lockup" style={{ color: "inherit" }}>
+          <BrandSeal />
           <div>
-            <div className="brand-title">Farmhouse Booking</div>
-            <div className="brand-sub">Private estate reservations</div>
+            <div className="brand-name" style={{ color: "#fbf7ec" }}>Estate Booking</div>
+            <div className="brand-sub" style={{ color: "rgba(232,214,168,.7)" }}>Booking Ledger</div>
           </div>
         </div>
-        <h2 style={{ margin: "0 0 0.25rem" }}>Welcome back</h2>
-        <p style={{ color: "var(--muted)", marginTop: 0, fontSize: "0.9rem" }}>Sign in to continue</p>
-        <form onSubmit={handleSubmit}>
-          <label className="field">
-            <span>Email</span>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoFocus
-              autoComplete="username"
-            />
-          </label>
-          <label className="field">
-            <span>Password</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              autoComplete="current-password"
-            />
-          </label>
-          {error && <div className="alert alert-error">{error}</div>}
-          <button type="submit" disabled={loading} className="btn" style={{ width: "100%", marginTop: "0.25rem" }}>
-            {loading ? "Signing in…" : "Sign in"}
-          </button>
-        </form>
+        <div>
+          <div className="eyebrow" style={{ color: "var(--brass-soft)" }}>Multi-company</div>
+          <div className="auth-hero-title">One calendar for every estate.</div>
+          <div className="auth-hero-sub">
+            Hold a slot, send it for approval, and confirm exactly one booking per
+            window — so a date is never promised twice.
+          </div>
+        </div>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: ".14em", color: "rgba(232,214,168,.55)", textTransform: "uppercase" }}>
+          Private access
+        </div>
+      </motion.aside>
+
+      <div className="auth-panel">
+        <motion.div
+          className="auth-card"
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, ease: [0.22, 0.61, 0.36, 1] }}
+        >
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
+            <Brand />
+          </div>
+
+          {mode === "login" ? (
+            <>
+              <h1 style={{ fontSize: 30, margin: "0 0 4px", textAlign: "center" }}>Welcome back</h1>
+              <p className="muted" style={{ textAlign: "center", margin: "0 0 22px" }}>
+                Sign in to your company.
+              </p>
+              <Form layout="vertical" onFinish={onFinish} requiredMark={false} size="large">
+                <Form.Item
+                  name="tenant"
+                  label="Company name"
+                  extra="Platform global admins can leave this blank."
+                >
+                  <Input prefix={<BankOutlined style={{ color: "var(--muted)" }} />} placeholder="Your company" autoFocus />
+                </Form.Item>
+                <Form.Item
+                  name="identifier"
+                  label="Username or email"
+                  rules={[{ required: true, message: "Enter your username or email" }]}
+                >
+                  <Input prefix={<UserOutlined style={{ color: "var(--muted)" }} />} placeholder="admin" autoComplete="username" />
+                </Form.Item>
+                <Form.Item
+                  name="password"
+                  label="Password"
+                  rules={[{ required: true, message: "Enter your password" }]}
+                >
+                  <Input.Password prefix={<LockOutlined style={{ color: "var(--muted)" }} />} placeholder="••••••••" autoComplete="current-password" />
+                </Form.Item>
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  block
+                  size="large"
+                  loading={loading}
+                  iconPlacement="end"
+                  icon={<ArrowRightOutlined />}
+                  style={{ marginTop: 4 }}
+                >
+                  Sign in
+                </Button>
+              </Form>
+              <p className="muted" style={{ textAlign: "center", margin: "18px 0 0" }}>
+                New here?{" "}
+                <a onClick={() => setMode("signup")} style={{ cursor: "pointer" }}>Create a company</a>
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 style={{ fontSize: 30, margin: "0 0 4px", textAlign: "center" }}>Create your company</h1>
+              <p className="muted" style={{ textAlign: "center", margin: "0 0 22px" }}>
+                We'll send your request to the platform admin for approval.
+              </p>
+              <Form layout="vertical" onFinish={onSignup} requiredMark={false} size="large">
+                <Form.Item
+                  name="company_name"
+                  label="Company name"
+                  rules={[{ required: true, message: "Enter a company name" }]}
+                >
+                  <Input prefix={<BankOutlined style={{ color: "var(--muted)" }} />} placeholder="Green Acres Pvt Ltd" autoFocus />
+                </Form.Item>
+                <Form.Item
+                  name="name"
+                  label="Your name"
+                  rules={[{ required: true, message: "Enter your name" }]}
+                >
+                  <Input prefix={<UserOutlined style={{ color: "var(--muted)" }} />} placeholder="Jane Doe" />
+                </Form.Item>
+                <Form.Item
+                  name="email"
+                  label="Email"
+                  rules={[
+                    { required: true, message: "Enter your email" },
+                    { type: "email", message: "Enter a valid email" },
+                  ]}
+                >
+                  <Input prefix={<MailOutlined style={{ color: "var(--muted)" }} />} placeholder="jane@company.com" autoComplete="email" />
+                </Form.Item>
+                <Form.Item
+                  name="password"
+                  label="Password"
+                  rules={[{ required: true, message: "Enter a password" }, { min: 8, message: "At least 8 characters" }]}
+                >
+                  <Input.Password prefix={<LockOutlined style={{ color: "var(--muted)" }} />} placeholder="••••••••" autoComplete="new-password" />
+                </Form.Item>
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  block
+                  size="large"
+                  loading={loading}
+                  iconPlacement="end"
+                  icon={<ArrowRightOutlined />}
+                  style={{ marginTop: 4 }}
+                >
+                  Submit for approval
+                </Button>
+              </Form>
+              <p className="muted" style={{ textAlign: "center", margin: "18px 0 0" }}>
+                Already have a company?{" "}
+                <a onClick={() => setMode("login")} style={{ cursor: "pointer" }}>Sign in</a>
+              </p>
+            </>
+          )}
+        </motion.div>
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Authenticated shell
+// Change password modal
 // ---------------------------------------------------------------------------
+function ChangePasswordModal({ open, onClose }) {
+  const { message } = AntApp.useApp();
+  const [form] = Form.useForm();
+  const [loading, setLoading] = useState(false);
 
-function AppShell({ user, onLogout }) {
-  const [health, setHealth] = useState(null);
-  const [healthError, setHealthError] = useState(null);
-  const [tab, setTab] = useState("dashboard");
-
-  useEffect(() => {
-    getHealth().then(setHealth).catch((e) => setHealthError(e.message));
-  }, []);
-
-  const tabs = [
-    { id: "dashboard", label: "Dashboard" },
-    { id: "calendar", label: "Calendar" },
-    { id: "bookings", label: "My Bookings" },
-    { id: "farmhouses", label: "Farmhouses" },
-    { id: "approve", label: "Approvals", admin: true },
-    { id: "reports", label: "Reports", admin: true },
-    { id: "invites", label: "Invite Bookie", admin: true },
-    { id: "activity", label: "Activity Log" },
-    { id: "policies", label: "Policies" },
-    { id: "settings", label: "Settings", admin: true },
-    { id: "blackouts", label: "Blackouts", admin: true },
-  ].filter((t) => !t.admin || user.role === "admin");
+  async function submit(values) {
+    setLoading(true);
+    try {
+      await changePassword(values.current_password, values.new_password);
+      message.success("Password updated.");
+      form.resetFields();
+      onClose();
+    } catch (err) {
+      message.error(err.message ?? "Failed to change password");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
-    <div className="app-bg">
-      <header className="app-header">
-        <div className="app-header-inner">
-          <div className="brand">
-            <BrandMark />
-            <div>
-              <div className="brand-title">Farmhouse Booking</div>
-              <div className="brand-sub">Private estate reservations</div>
-            </div>
-          </div>
-          <div className="header-actions">
-            <NotificationBell />
-            <span className="user-pill">
-              <span className="email">{user.name || user.email}</span>
-              <span className="role">{user.role}</span>
-            </span>
-            <button onClick={onLogout} className="btn btn-ghost btn-sm">Sign out</button>
-          </div>
-        </div>
-        <nav className="app-nav">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`tab${tab === t.id ? " active" : ""}`}
+    <Modal
+      title="Change password"
+      open={open}
+      onCancel={() => { form.resetFields(); onClose(); }}
+      onOk={() => form.submit()}
+      okText="Update password"
+      confirmLoading={loading}
+      destroyOnHidden
+    >
+      <Form form={form} layout="vertical" onFinish={submit} requiredMark={false}>
+        <Form.Item
+          name="current_password"
+          label="Current password"
+          rules={[{ required: true, message: "Enter your current password" }]}
+        >
+          <Input.Password prefix={<LockOutlined style={{ color: "var(--muted)" }} />} autoComplete="current-password" />
+        </Form.Item>
+        <Form.Item
+          name="new_password"
+          label="New password"
+          rules={[{ required: true, message: "Enter a new password" }, { min: 8, message: "At least 8 characters" }]}
+        >
+          <Input.Password prefix={<LockOutlined style={{ color: "var(--muted)" }} />} autoComplete="new-password" />
+        </Form.Item>
+        <Form.Item
+          name="confirm_password"
+          label="Confirm new password"
+          dependencies={["new_password"]}
+          rules={[
+            { required: true, message: "Confirm your new password" },
+            ({ getFieldValue }) => ({
+              validator(_, value) {
+                if (!value || getFieldValue("new_password") === value) return Promise.resolve();
+                return Promise.reject(new Error("Passwords do not match"));
+              },
+            }),
+          ]}
+        >
+          <Input.Password prefix={<LockOutlined style={{ color: "var(--muted)" }} />} autoComplete="new-password" />
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Authenticated shell
+// ---------------------------------------------------------------------------
+function AppShell({ user, onLogout }) {
+  const isGlobal = user.role === "global_admin";
+  const [tab, setTab] = useState(isGlobal ? "companies" : "overview");
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [pwOpen, setPwOpen] = useState(false);
+
+  const nav = useMemo(() => visibleNav(user.role), [user.role]);
+
+  // Bottom-nav primary set (mobile)
+  const primaryIds = isGlobal
+    ? ["companies", "globaladmins"]
+    : ["overview", "calendar", "bookings", user.role === "admin" ? "approve" : "farmhouses"];
+  const primary = primaryIds.map((id) => nav.find((n) => n.id === id)).filter(Boolean);
+  const moreItems = nav.filter((n) => !primaryIds.includes(n.id));
+
+  function go(id) {
+    setTab(id);
+    setMoreOpen(false);
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }
+
+  const railGroups = useMemo(() => {
+    const groups = {};
+    nav.forEach((n) => {
+      (groups[n.group] ||= []).push(n);
+    });
+    return groups;
+  }, [nav]);
+
+  const pages = {
+    companies: <CompaniesPage />,
+    globaladmins: <GlobalAdminsPage user={user} />,
+    overview: <OverviewPage user={user} onNavigate={go} />,
+    calendar: <CalendarPage user={user} />,
+    bookings: <BookingsPage user={user} />,
+    approve: <ApproveQueue />,
+    farmhouses: <FarmhousesPage user={user} />,
+    bookies: <BookiesPage />,
+    users: <UsersPage user={user} />,
+    reports: <ReportsPage />,
+    activity: <ActivityLogPage user={user} />,
+    policies: <PoliciesPage user={user} />,
+    settings: <SettingsPage />,
+    blackouts: <BlackoutsManager />,
+  };
+
+  const roleLabel = isGlobal ? "Global admin" : user.role === "admin" ? "Administrator" : "Bookie";
+
+  return (
+    <div className="estate-shell">
+      <header className="estate-topbar">
+        <Brand sub={roleLabel} />
+        <div className="topbar-actions">
+          {!isGlobal && <NotificationBell />}
+          <Dropdown
+            placement="bottomRight"
+            menu={{
+              items: [
+                { key: "who", label: <span style={{ fontWeight: 600 }}>{user.name || user.email}</span>, disabled: true },
+                { type: "divider" },
+                { key: "password", icon: <LockOutlined />, label: "Change password", onClick: () => setPwOpen(true) },
+                { key: "logout", icon: <LogoutOutlined />, label: "Sign out", onClick: onLogout },
+              ],
+            }}
+          >
+            <Avatar
+              style={{ background: "linear-gradient(150deg,#2E5246,#1F3D33)", color: "#E8D6A8", cursor: "pointer", fontWeight: 600 }}
             >
-              {t.label}
-            </button>
-          ))}
-        </nav>
+              {(user.name || user.email || "?").charAt(0).toUpperCase()}
+            </Avatar>
+          </Dropdown>
+        </div>
       </header>
 
-      <main className="app-main" key={tab}>
-        {tab === "dashboard" && (
-          <section className="card" style={{ maxWidth: 480 }}>
-            <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>System status</h2>
-            {healthError && <div className="alert alert-error">Backend unreachable: {healthError}</div>}
-            {!healthError && !health && <p style={{ color: "var(--muted)" }}>Checking…</p>}
-            {health && (
-              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: "0.4rem" }}>
-                <li>API: <strong>{health.status}</strong></li>
-                <li>Database: <strong>{health.database}</strong></li>
-                <li>Timezone: <strong>{health.timezone}</strong></li>
-              </ul>
-            )}
-          </section>
-        )}
+      <ChangePasswordModal open={pwOpen} onClose={() => setPwOpen(false)} />
 
-        {tab === "farmhouses" && <FarmhousesPage user={user} />}
-        {tab === "bookings" && <MyBookings user={user} />}
-        {tab === "calendar" && <CalendarPage />}
-        {tab === "approve" && user.role === "admin" && <ApproveQueue />}
-        {tab === "reports" && user.role === "admin" && <ReportsPage />}
-        {tab === "invites" && user.role === "admin" && <InviteBookiePage />}
-        {tab === "activity" && <ActivityLogPage user={user} />}
-        {tab === "policies" && <PoliciesPage user={user} />}
-        {tab === "settings" && user.role === "admin" && <SettingsPage />}
-        {tab === "blackouts" && user.role === "admin" && <BlackoutsManager />}
-      </main>
+      <div className="estate-body">
+        <nav className="estate-rail" aria-label="Sections">
+          {Object.entries(railGroups).map(([group, items]) => (
+            <div key={group}>
+              <div className="rail-section">{group}</div>
+              {items.map((n) => (
+                <button
+                  key={n.id}
+                  className={`rail-link${tab === n.id ? " active" : ""}`}
+                  onClick={() => go(n.id)}
+                >
+                  {n.icon}
+                  {n.label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
+
+        <main className="estate-main">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={tab}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.28, ease: [0.22, 0.61, 0.36, 1] }}
+            >
+              {pages[tab]}
+            </motion.div>
+          </AnimatePresence>
+        </main>
+      </div>
+
+      {/* Mobile bottom navigation */}
+      <nav className="estate-bottomnav" aria-label="Primary">
+        {primary.map((n) => (
+          <button
+            key={n.id}
+            className={`bottomnav-item${tab === n.id ? " active" : ""}`}
+            onClick={() => go(n.id)}
+          >
+            {n.icon}
+            {n.label}
+          </button>
+        ))}
+        <button
+          className={`bottomnav-item${moreItems.some((m) => m.id === tab) ? " active" : ""}`}
+          onClick={() => setMoreOpen(true)}
+        >
+          <EllipsisOutlined />
+          More
+        </button>
+      </nav>
+
+      <Drawer
+        title="More"
+        placement="bottom"
+        size="auto"
+        open={moreOpen}
+        onClose={() => setMoreOpen(false)}
+        styles={{ body: { padding: 14 } }}
+      >
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+          {moreItems.map((n) => (
+            <button
+              key={n.id}
+              onClick={() => go(n.id)}
+              style={{
+                border: "1px solid var(--hairline)",
+                background: tab === n.id ? "#eaf0ec" : "var(--paper)",
+                color: tab === n.id ? "var(--pine)" : "var(--ink)",
+                borderRadius: 14,
+                padding: "16px 8px",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 7,
+                cursor: "pointer",
+                fontWeight: 600,
+                fontSize: 12.5,
+              }}
+            >
+              <span style={{ fontSize: 21, color: "var(--brass)" }}>{n.icon}</span>
+              {n.label}
+            </button>
+          ))}
+        </div>
+      </Drawer>
     </div>
   );
 }
@@ -183,12 +504,10 @@ function AppShell({ user, onLogout }) {
 // ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
-
 export default function App() {
-  const [user, setUser] = useState(undefined); // undefined = loading, null = logged out
+  const [user, setUser] = useState(undefined);
 
   useEffect(() => {
-    // Skip auth check on the public set-password route
     if (window.location.pathname === "/set-password") return;
     if (tokens.getAccess()) {
       getMe().then(setUser).catch(() => setUser(null));
@@ -197,7 +516,6 @@ export default function App() {
     }
   }, []);
 
-  // Public route: /set-password — renders without auth
   if (window.location.pathname === "/set-password") {
     return <SetPasswordPage />;
   }
@@ -205,14 +523,12 @@ export default function App() {
   function handleLogin() {
     getMe().then(setUser).catch(() => setUser(null));
   }
-
   function handleLogout() {
     tokens.clear();
     setUser(null);
   }
 
-  if (user === undefined) return null; // brief loading flash
+  if (user === undefined) return null;
   if (!user) return <LoginPage onLogin={handleLogin} />;
   return <AppShell user={user} onLogout={handleLogout} />;
 }
-

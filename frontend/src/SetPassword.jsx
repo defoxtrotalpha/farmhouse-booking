@@ -1,91 +1,92 @@
 import { useState } from "react";
+import { App as AntApp, Button, Form, Input, Result } from "antd";
+import { motion } from "framer-motion";
+import { LockOutlined, ArrowRightOutlined } from "@ant-design/icons";
 import { setPassword } from "./api.js";
+import { Brand } from "./ui.jsx";
+
+function getToken() {
+  return new URLSearchParams(window.location.search).get("token") || "";
+}
 
 export default function SetPasswordPage() {
-  // Read ?token= from the URL query string
-  const params = new URLSearchParams(window.location.search);
-  const token = params.get("token") ?? "";
-
-  const [password, setPass] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [status, setStatus] = useState(null); // null | {ok: bool, msg: string}
+  const { message } = AntApp.useApp();
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const token = getToken();
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (password !== confirm) {
-      setStatus({ ok: false, msg: "Passwords do not match" });
-      return;
-    }
-    setStatus(null);
+  async function onFinish(values) {
     setLoading(true);
     try {
-      await setPassword(token, password);
+      await setPassword(token, values.password);
       setDone(true);
     } catch (err) {
-      setStatus({ ok: false, msg: err.message ?? "Failed to set password" });
+      message.error(err.message ?? "Could not set your password");
     } finally {
       setLoading(false);
     }
   }
 
-  if (!token) {
-    return (
-      <div className="auth-wrap">
-        <div className="auth-card card">
-          <h2 style={{ marginTop: 0 }}>Invalid link</h2>
-          <p style={{ color: "var(--muted)" }}>No invite token found. Please use the link from your invitation email.</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (done) {
-    return (
-      <div className="auth-wrap">
-        <div className="auth-card card">
-          <h2 style={{ marginTop: 0 }}>Password set 🎉</h2>
-          <p style={{ color: "var(--muted)" }}>Your account is now active.</p>
-          <a href="/" className="btn" style={{ textDecoration: "none" }}>Go to login →</a>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="auth-wrap">
-      <div className="auth-card card">
-        <h2 style={{ margin: "0 0 0.25rem" }}>Set your password</h2>
-        <p style={{ color: "var(--muted)", marginTop: 0, fontSize: "0.9rem" }}>Choose a password to activate your account.</p>
-        <form onSubmit={handleSubmit}>
-          <label className="field">
-            <span>New password</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPass(e.target.value)}
-              required
-              minLength={8}
-              autoFocus
-              autoComplete="new-password"
+    <div className="auth-stage">
+      <motion.aside className="auth-aside" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
+        <Brand />
+        <div>
+          <div className="eyebrow" style={{ color: "var(--brass-soft)" }}>Activate your account</div>
+          <div className="auth-hero-title">You're on the guest list.</div>
+          <p className="auth-hero-sub">Choose a password to finish setting up your bookie account and start placing holds.</p>
+        </div>
+        <span />
+      </motion.aside>
+
+      <div className="auth-panel">
+        <motion.div className="auth-card" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
+          {done ? (
+            <Result
+              status="success"
+              title="Password set"
+              subTitle="Your account is active. You can sign in now."
+              extra={
+                <Button type="primary" onClick={() => (window.location.href = "/")} icon={<ArrowRightOutlined />} iconPlacement="end">
+                  Go to sign in
+                </Button>
+              }
             />
-          </label>
-          <label className="field">
-            <span>Confirm password</span>
-            <input
-              type="password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              required
-              autoComplete="new-password"
-            />
-          </label>
-          {status && <div className="alert alert-error">{status.msg}</div>}
-          <button type="submit" disabled={loading} className="btn" style={{ width: "100%", marginTop: "0.25rem" }}>
-            {loading ? "Setting password…" : "Set password"}
-          </button>
-        </form>
+          ) : !token ? (
+            <Result status="warning" title="Missing invite link" subTitle="This page needs a valid invite token. Please use the link from your invitation email." />
+          ) : (
+            <>
+              <h1 style={{ fontSize: 28, margin: "0 0 4px", textAlign: "center" }}>Set your password</h1>
+              <p className="muted" style={{ textAlign: "center", margin: "0 0 22px" }}>At least 8 characters.</p>
+              <Form layout="vertical" onFinish={onFinish} requiredMark={false} size="large">
+                <Form.Item
+                  name="password"
+                  label="New password"
+                  rules={[{ required: true, message: "Choose a password" }, { min: 8, message: "Use at least 8 characters" }]}
+                >
+                  <Input.Password prefix={<LockOutlined style={{ color: "var(--muted)" }} />} placeholder="••••••••" autoFocus />
+                </Form.Item>
+                <Form.Item
+                  name="confirm"
+                  label="Confirm password"
+                  dependencies={["password"]}
+                  rules={[
+                    { required: true, message: "Confirm your password" },
+                    ({ getFieldValue }) => ({
+                      validator: (_, v) =>
+                        !v || getFieldValue("password") === v ? Promise.resolve() : Promise.reject(new Error("Passwords do not match")),
+                    }),
+                  ]}
+                >
+                  <Input.Password prefix={<LockOutlined style={{ color: "var(--muted)" }} />} placeholder="••••••••" />
+                </Form.Item>
+                <Button type="primary" htmlType="submit" block size="large" loading={loading} icon={<ArrowRightOutlined />} iconPlacement="end">
+                  Activate account
+                </Button>
+              </Form>
+            </>
+          )}
+        </motion.div>
       </div>
     </div>
   );

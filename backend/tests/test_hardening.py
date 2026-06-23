@@ -51,6 +51,7 @@ def _make_app_client():
 _PUBLIC = {
     ("GET", "/api/health"),
     ("POST", "/api/auth/login"),
+    ("POST", "/api/auth/signup"),
     ("POST", "/api/auth/refresh"),
     ("POST", "/api/invites/set-password"),
 }

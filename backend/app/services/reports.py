@@ -311,6 +311,21 @@ def _generate_buckets(start: datetime, end: datetime, granularity: str) -> list[
         while y <= local_end.year:
             buckets.append(f"{y}")
             y += 1
+    elif granularity == "week":
+        from datetime import timedelta as _td
+
+        # Anchor on the Monday of each ISO week.
+        cur = local_start.date() - _td(days=local_start.weekday())
+        last = local_end.date()
+        seen: set[str] = set()
+        while cur <= last:
+            iso = cur.isocalendar()
+            key = f"{iso[0]}-W{iso[1]:02d}"
+            if key not in seen:
+                seen.add(key)
+                buckets.append(key)
+            cur += _td(days=7)
+        return buckets
     else:
         y, m = local_start.year, local_start.month
         end_y, end_m = local_end.year, local_end.month
@@ -321,6 +336,110 @@ def _generate_buckets(start: datetime, end: datetime, granularity: str) -> list[
                 m = 1
                 y += 1
     return buckets
+
+
+def _period_key(local_dt: datetime, granularity: str) -> str:
+    """Period key for a local datetime under the given granularity."""
+    if granularity == "year":
+        return f"{local_dt.year}"
+    if granularity == "week":
+        iso = local_dt.isocalendar()
+        return f"{iso[0]}-W{iso[1]:02d}"
+    return f"{local_dt.year}-{local_dt.month:02d}"
+
+
+# ---------------------------------------------------------------------------
+# finances — revenue analytics (based on quoted_price of booked bookings)
+# ---------------------------------------------------------------------------
+
+def finances(
+    db: Session,
+    *,
+    start: datetime,
+    end: datetime,
+    granularity: str = "month",
+) -> dict:
+    """Revenue analytics over confirmed (booked) bookings in [start, end).
+
+    Revenue is the sum of ``quoted_price`` for bookings whose status is
+    ``booked``. Bookings without a price contribute 0 to revenue but are still
+    counted. Returns:
+      {
+        "totals": {total_revenue, booked_count, priced_count, average_value},
+        "per_farmhouse": [{farmhouse_id, farmhouse_name, revenue, booked_count}],
+        "granularity": "week|month|year",
+        "breakdown": [{period, revenue, booked_count}],
+      }
+    All time bucketing uses the Asia/Karachi calendar.
+    """
+    if granularity not in ("week", "month", "year"):
+        granularity = "month"
+
+    rows = (
+        db.query(Booking)
+        .filter(
+            Booking.status == "booked",
+            Booking.start_at >= start,
+            Booking.start_at < end,
+        )
+        .all()
+    )
+
+    fh_names = {f.id: f.name for f in db.query(Farmhouse).all()}
+
+    total_revenue = 0.0
+    priced_count = 0
+    per_fh_rev: dict[int, float] = defaultdict(float)
+    per_fh_count: dict[int, int] = defaultdict(int)
+    period_rev: dict[str, float] = defaultdict(float)
+    period_count: dict[str, int] = defaultdict(int)
+
+    for b in rows:
+        price = float(b.quoted_price) if b.quoted_price is not None else 0.0
+        if b.quoted_price is not None:
+            priced_count += 1
+        total_revenue += price
+        per_fh_rev[b.farmhouse_id] += price
+        per_fh_count[b.farmhouse_id] += 1
+        key = _period_key(_to_local(b.start_at), granularity)
+        period_rev[key] += price
+        period_count[key] += 1
+
+    booked_count = len(rows)
+    average_value = round(total_revenue / priced_count, 2) if priced_count else 0.0
+
+    per_farmhouse = [
+        {
+            "farmhouse_id": fid,
+            "farmhouse_name": fh_names.get(fid, ""),
+            "revenue": round(per_fh_rev[fid], 2),
+            "booked_count": per_fh_count[fid],
+        }
+        for fid in per_fh_rev
+    ]
+    per_farmhouse.sort(key=lambda r: r["revenue"], reverse=True)
+
+    buckets = _generate_buckets(start, end, granularity)
+    breakdown = [
+        {
+            "period": p,
+            "revenue": round(period_rev.get(p, 0.0), 2),
+            "booked_count": period_count.get(p, 0),
+        }
+        for p in buckets
+    ]
+
+    return {
+        "totals": {
+            "total_revenue": round(total_revenue, 2),
+            "booked_count": booked_count,
+            "priced_count": priced_count,
+            "average_value": average_value,
+        },
+        "per_farmhouse": per_farmhouse,
+        "granularity": granularity,
+        "breakdown": breakdown,
+    }
 
 
 # ---------------------------------------------------------------------------

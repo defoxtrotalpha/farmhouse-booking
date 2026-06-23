@@ -1,419 +1,296 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  App as AntApp,
+  Button,
+  Card,
+  DatePicker,
+  Dropdown,
+  Progress,
+  Segmented,
+  Skeleton,
+  Statistic,
+  Table,
+} from "antd";
+import { DownloadOutlined, ReloadOutlined } from "@ant-design/icons";
+import dayjs from "dayjs";
+
 import {
   getReportSummary,
   getOccupancy,
   getBookiePerformance,
-  getTrends,
-  searchBookingsReport,
+  getReportFinances,
   downloadReportExport,
-  listFarmhouses,
 } from "./api.js";
+import { PageHeader } from "./ui.jsx";
+import { statusOf } from "./theme.js";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+const { RangePicker } = DatePicker;
 
-const th = { padding: "0.4rem 0.6rem", textAlign: "left", borderBottom: "1px solid #e5e5e5", fontWeight: 600, background: "#f5f5f5" };
-const td = { padding: "0.35rem 0.6rem", borderBottom: "1px solid #f0f0f0", fontSize: "0.85rem" };
-const card = { border: "1px solid #e5e5e5", borderRadius: 8, padding: "1rem 1.25rem", marginBottom: "1.25rem" };
-const row = { display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-end", marginBottom: "0.75rem" };
-const lbl = { display: "flex", flexDirection: "column", gap: "0.2rem", fontSize: "0.8rem", color: "#555" };
-const inp = { padding: "0.35rem 0.5rem", border: "1px solid #ccc", borderRadius: 4, fontSize: "0.85rem" };
-const btn = (variant = "primary") => ({
-  padding: "0.4rem 0.9rem",
-  cursor: "pointer",
-  border: "none",
-  borderRadius: 4,
-  fontWeight: 600,
-  fontSize: "0.8rem",
-  background: variant === "primary" ? "#1a6b3a" : variant === "pdf" ? "#a63232" : "#2a5ca6",
-  color: "#fff",
-});
+const STAT_ORDER = ["booked", "pending", "hold", "rejected", "canceled"];
 
-function isoToday() {
-  return new Date().toISOString().slice(0, 10);
-}
-function iso365DaysAgo() {
-  const d = new Date();
-  d.setFullYear(d.getFullYear() - 1);
-  return d.toISOString().slice(0, 10);
-}
+const PKR = new Intl.NumberFormat("en-PK", { style: "currency", currency: "PKR", maximumFractionDigits: 0 });
+const fmtPKR = (n) => PKR.format(Number(n) || 0);
 
-// ---------------------------------------------------------------------------
-// Summary panel
-// ---------------------------------------------------------------------------
+export default function ReportsPage() {
+  const { message } = AntApp.useApp();
+  const [range, setRange] = useState([dayjs().subtract(90, "day"), dayjs()]);
+  const [summary, setSummary] = useState(null);
+  const [occupancy, setOccupancy] = useState([]);
+  const [performance, setPerformance] = useState([]);
+  const [finances, setFinances] = useState(null);
+  const [finGranularity, setFinGranularity] = useState("month");
+  const [loading, setLoading] = useState(true);
 
-function SummaryPanel({ start, end }) {
-  const [data, setData] = useState(null);
-  const [err, setErr] = useState(null);
-
-  useEffect(() => {
-    setData(null); setErr(null);
-    getReportSummary({ start, end })
-      .then(setData)
-      .catch((e) => setErr(e.message));
-  }, [start, end]);
-
-  if (err) return <p style={{ color: "#b00020" }}>{err}</p>;
-  if (!data) return <p>Loading…</p>;
-
-  const { counts } = data;
-  const statuses = Object.entries(counts).filter(([k]) => k !== "total");
-
-  return (
-    <div>
-      <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
-        {statuses.map(([k, v]) => (
-          <div key={k} style={{ border: "1px solid #e5e5e5", borderRadius: 6, padding: "0.5rem 0.9rem", minWidth: 80, textAlign: "center" }}>
-            <div style={{ fontSize: "1.4rem", fontWeight: 700 }}>{v}</div>
-            <div style={{ fontSize: "0.75rem", color: "#666", textTransform: "capitalize" }}>{k}</div>
-          </div>
-        ))}
-        <div style={{ border: "2px solid #1a6b3a", borderRadius: 6, padding: "0.5rem 0.9rem", minWidth: 80, textAlign: "center" }}>
-          <div style={{ fontSize: "1.4rem", fontWeight: 700 }}>{counts.total}</div>
-          <div style={{ fontSize: "0.75rem", color: "#1a6b3a", fontWeight: 600 }}>Total</div>
-        </div>
-      </div>
-
-      <h4 style={{ margin: "0.5rem 0 0.4rem" }}>Monthly breakdown</h4>
-      {data.monthly.length === 0 ? <p style={{ color: "#888", fontSize: "0.85rem" }}>No data</p> : (
-        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "0.85rem" }}>
-          <thead><tr><th style={th}>Year</th><th style={th}>Month</th><th style={th}>Confirmed</th><th style={th}>Total</th></tr></thead>
-          <tbody>
-            {data.monthly.map((r) => (
-              <tr key={`${r.year}-${r.month}`}>
-                <td style={td}>{r.year}</td>
-                <td style={td}>{r.month}</td>
-                <td style={td}>{r.booked_count}</td>
-                <td style={td}>{r.total_count}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Occupancy panel
-// ---------------------------------------------------------------------------
-
-function OccupancyPanel({ start, end, farmhouseId }) {
-  const [data, setData] = useState(null);
-  const [err, setErr] = useState(null);
-
-  useEffect(() => {
-    setData(null); setErr(null);
-    getOccupancy({ start, end, farmhouse_id: farmhouseId || undefined })
-      .then(setData)
-      .catch((e) => setErr(e.message));
-  }, [start, end, farmhouseId]);
-
-  if (err) return <p style={{ color: "#b00020" }}>{err}</p>;
-  if (!data) return <p>Loading…</p>;
-  if (data.length === 0) return <p style={{ color: "#888", fontSize: "0.85rem" }}>No data</p>;
-
-  return (
-    <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "0.85rem" }}>
-      <thead>
-        <tr>
-          <th style={th}>Farmhouse</th>
-          <th style={th}>Booked Seconds</th>
-          <th style={th}>Window Seconds</th>
-          <th style={th}>Occupancy %</th>
-        </tr>
-      </thead>
-      <tbody>
-        {data.map((r) => (
-          <tr key={r.farmhouse_id}>
-            <td style={td}>{r.farmhouse_name}</td>
-            <td style={td}>{r.booked_seconds}</td>
-            <td style={td}>{r.window_seconds}</td>
-            <td style={td}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <div style={{ flex: 1, height: 8, background: "#e5e5e5", borderRadius: 4 }}>
-                  <div style={{ width: `${r.occupancy_percent}%`, height: "100%", background: r.occupancy_percent > 80 ? "#c0392b" : "#1a6b3a", borderRadius: 4 }} />
-                </div>
-                <span>{r.occupancy_percent}%</span>
-              </div>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Bookie performance panel
-// ---------------------------------------------------------------------------
-
-function BookiePerformancePanel({ start, end }) {
-  const [data, setData] = useState(null);
-  const [err, setErr] = useState(null);
-
-  useEffect(() => {
-    setData(null); setErr(null);
-    getBookiePerformance({ start, end })
-      .then(setData)
-      .catch((e) => setErr(e.message));
-  }, [start, end]);
-
-  if (err) return <p style={{ color: "#b00020" }}>{err}</p>;
-  if (!data) return <p>Loading…</p>;
-  if (data.length === 0) return <p style={{ color: "#888", fontSize: "0.85rem" }}>No data</p>;
-
-  return (
-    <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "0.85rem" }}>
-      <thead>
-        <tr>
-          <th style={th}>Bookie</th>
-          <th style={th}>Submitted</th>
-          <th style={th}>Approved</th>
-          <th style={th}>Rejected</th>
-          <th style={th}>Canceled</th>
-          <th style={th}>Approval Rate</th>
-        </tr>
-      </thead>
-      <tbody>
-        {data.map((r) => (
-          <tr key={r.bookie_id}>
-            <td style={td}>{r.bookie_name}</td>
-            <td style={td}>{r.submitted}</td>
-            <td style={td}>{r.approved}</td>
-            <td style={td}>{r.rejected}</td>
-            <td style={td}>{r.canceled}</td>
-            <td style={td}>
-              {r.approval_rate == null
-                ? <span style={{ color: "#aaa" }}>—</span>
-                : `${(r.approval_rate * 100).toFixed(0)}%`}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Bookings search panel
-// ---------------------------------------------------------------------------
-
-function BookingsSearchPanel({ farmhouses }) {
-  const [filters, setFilters] = useState({ farmhouse_id: "", status: "", start: "", end: "", client: "" });
-  const [data, setData] = useState(null);
-  const [err, setErr] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  function setF(k, v) { setFilters((f) => ({ ...f, [k]: v })); }
-
-  async function handleSearch(e) {
-    e.preventDefault();
-    setErr(null); setLoading(true);
+  const load = useCallback(async () => {
+    setLoading(true);
+    const params = { start: range[0].toISOString(), end: range[1].toISOString() };
     try {
-      const res = await searchBookingsReport({
-        farmhouse_id: filters.farmhouse_id || undefined,
-        status: filters.status || undefined,
-        start: filters.start || undefined,
-        end: filters.end || undefined,
-        client: filters.client || undefined,
-      });
-      setData(res);
-    } catch (ex) {
-      setErr(ex.message);
+      const [s, o, p, f] = await Promise.all([
+        getReportSummary(params),
+        getOccupancy(params),
+        getBookiePerformance(params),
+        getReportFinances({ ...params, granularity: finGranularity }),
+      ]);
+      setSummary(s);
+      setOccupancy(o);
+      setPerformance(p);
+      setFinances(f);
+    } catch (e) {
+      message.error(e.message);
     } finally {
       setLoading(false);
     }
-  }
+  }, [range, finGranularity, message]);
 
-  return (
-    <div>
-      <form onSubmit={handleSearch} style={row}>
-        <label style={lbl}>
-          Farmhouse
-          <select style={inp} value={filters.farmhouse_id} onChange={(e) => setF("farmhouse_id", e.target.value)}>
-            <option value="">All</option>
-            {farmhouses.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-          </select>
-        </label>
-        <label style={lbl}>
-          Status
-          <select style={inp} value={filters.status} onChange={(e) => setF("status", e.target.value)}>
-            <option value="">All</option>
-            {["hold", "pending", "booked", "rejected", "canceled", "expired"].map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-        </label>
-        <label style={lbl}>
-          Start
-          <input type="date" style={inp} value={filters.start} onChange={(e) => setF("start", e.target.value)} />
-        </label>
-        <label style={lbl}>
-          End
-          <input type="date" style={inp} value={filters.end} onChange={(e) => setF("end", e.target.value)} />
-        </label>
-        <label style={lbl}>
-          Client (contains)
-          <input type="text" style={inp} value={filters.client} onChange={(e) => setF("client", e.target.value)} placeholder="name" />
-        </label>
-        <button type="submit" style={btn("primary")} disabled={loading}>Search</button>
-      </form>
-      {err && <p style={{ color: "#b00020" }}>{err}</p>}
-      {data && (
-        data.length === 0
-          ? <p style={{ color: "#888", fontSize: "0.85rem" }}>No results</p>
-          : (
-            <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "0.82rem" }}>
-              <thead>
-                <tr>
-                  {["ID", "Farmhouse", "Bookie", "Status", "Start", "End", "Client", "Event", "Price"].map((h) => (
-                    <th key={h} style={th}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((b) => (
-                  <tr key={b.id}>
-                    <td style={td}>{b.id}</td>
-                    <td style={td}>{b.farmhouse_name}</td>
-                    <td style={td}>{b.bookie_name}</td>
-                    <td style={td}>{b.status}</td>
-                    <td style={td}>{b.start_at ? b.start_at.slice(0, 16).replace("T", " ") : "—"}</td>
-                    <td style={td}>{b.end_at ? b.end_at.slice(0, 16).replace("T", " ") : "—"}</td>
-                    <td style={td}>{b.client_name ?? "—"}</td>
-                    <td style={td}>{b.event_type ?? "—"}</td>
-                    <td style={td}>{b.quoted_price != null ? `${b.quoted_price}` : "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )
-      )}
-    </div>
-  );
-}
+  useEffect(() => {
+    load();
+  }, [load]);
 
-// ---------------------------------------------------------------------------
-// Export controls
-// ---------------------------------------------------------------------------
-
-function ExportControls({ start, end, farmhouseId }) {
-  const [exportErr, setExportErr] = useState(null);
-  const [exporting, setExporting] = useState(null);
-
-  async function doExport(report, format) {
-    setExportErr(null);
-    setExporting(`${report}-${format}`);
+  async function exp(report, format) {
     try {
-      await downloadReportExport({ report, format, start, end, farmhouse_id: farmhouseId || undefined });
+      await downloadReportExport({
+        report,
+        format,
+        start: range[0].toISOString(),
+        end: range[1].toISOString(),
+      });
     } catch (e) {
-      setExportErr(e.message);
-    } finally {
-      setExporting(null);
+      message.error(e.message);
     }
   }
 
-  const exports = [
-    { label: "Summary (xlsx)", report: "summary", format: "xlsx", variant: "primary" },
-    { label: "Summary (pdf)", report: "summary", format: "pdf", variant: "pdf" },
-    { label: "Occupancy (xlsx)", report: "occupancy", format: "xlsx", variant: "primary" },
-    { label: "Occupancy (pdf)", report: "occupancy", format: "pdf", variant: "pdf" },
-    { label: "Bookie Perf (xlsx)", report: "bookie-performance", format: "xlsx", variant: "primary" },
-    { label: "Bookie Perf (pdf)", report: "bookie-performance", format: "pdf", variant: "pdf" },
-    { label: "Bookings (xlsx)", report: "bookings", format: "xlsx", variant: "primary" },
-    { label: "Bookings (pdf)", report: "bookings", format: "pdf", variant: "pdf" },
-  ];
+  const exportMenu = (report) => ({
+    items: [
+      { key: "xlsx", label: "Excel (.xlsx)" },
+      { key: "pdf", label: "PDF (.pdf)" },
+    ],
+    onClick: ({ key }) => exp(report, key),
+  });
 
   return (
     <div>
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-        {exports.map(({ label, report, format, variant }) => {
-          const key = `${report}-${format}`;
-          return (
-            <button key={key} style={btn(variant)} disabled={exporting === key}
-              onClick={() => doExport(report, format)}>
-              {exporting === key ? "…" : label}
-            </button>
-          );
-        })}
+      <PageHeader
+        eyebrow="Admin"
+        title="Reports"
+        subtitle="Occupancy, throughput, and bookie performance across any window."
+        extra={
+          <>
+            <RangePicker
+              value={range}
+              onChange={(v) => v && setRange(v)}
+              allowClear={false}
+              format="DD MMM YYYY"
+              placement="bottomLeft"
+              getPopupContainer={(t) => t.parentElement}
+            />
+            <Button icon={<ReloadOutlined />} onClick={load} />
+          </>
+        }
+      />
+
+      {/* Summary tiles */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, marginBottom: 18 }}>
+        {loading || !summary ? (
+          <Card><Skeleton active paragraph={false} /></Card>
+        ) : (
+          STAT_ORDER.map((st) => {
+            const meta = statusOf(st);
+            return (
+              <Card key={st} styles={{ body: { padding: 16 } }}>
+                <Statistic
+                  title={<span style={{ color: meta.color, fontWeight: 600 }}>{meta.label}</span>}
+                  value={summary.counts?.[st] ?? 0}
+                  styles={{ content: { fontFamily: "var(--font-display)", color: "var(--ink)" } }}
+                />
+              </Card>
+            );
+          })
+        )}
       </div>
-      {exportErr && <p style={{ color: "#b00020", marginTop: "0.5rem", fontSize: "0.85rem" }}>{exportErr}</p>}
+
+      {/* Finances */}
+      <Card
+        style={{ marginBottom: 18 }}
+        title="Finances"
+        extra={
+          <Segmented
+            value={finGranularity}
+            onChange={setFinGranularity}
+            options={[
+              { label: "Weekly", value: "week" },
+              { label: "Monthly", value: "month" },
+              { label: "Yearly", value: "year" },
+            ]}
+            size="small"
+          />
+        }
+      >
+        {loading || !finances ? (
+          <Skeleton active />
+        ) : (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 18 }}>
+              <Statistic
+                title={<span style={{ color: "var(--brass)", fontWeight: 600 }}>Total revenue</span>}
+                value={fmtPKR(finances.totals?.total_revenue)}
+                styles={{ content: { fontFamily: "var(--font-display)", color: "var(--ink)" } }}
+              />
+              <Statistic
+                title="Confirmed bookings"
+                value={finances.totals?.booked_count ?? 0}
+                styles={{ content: { fontFamily: "var(--font-display)", color: "var(--ink)" } }}
+              />
+              <Statistic
+                title="Priced bookings"
+                value={finances.totals?.priced_count ?? 0}
+                styles={{ content: { fontFamily: "var(--font-display)", color: "var(--ink)" } }}
+              />
+              <Statistic
+                title="Average value"
+                value={fmtPKR(finances.totals?.average_value)}
+                styles={{ content: { fontFamily: "var(--font-display)", color: "var(--ink)" } }}
+              />
+            </div>
+
+            <div className="eyebrow" style={{ marginBottom: 8 }}>Revenue by estate</div>
+            <Table
+              rowKey="farmhouse_id"
+              dataSource={finances.per_farmhouse ?? []}
+              pagination={false}
+              size="middle"
+              scroll={{ x: true }}
+              style={{ marginBottom: 18 }}
+              locale={{ emptyText: "No confirmed revenue in this window" }}
+              columns={[
+                { title: "Estate", dataIndex: "farmhouse_name" },
+                { title: "Confirmed", dataIndex: "booked_count", align: "right" },
+                {
+                  title: "Revenue",
+                  dataIndex: "revenue",
+                  align: "right",
+                  render: (v) => fmtPKR(v),
+                  sorter: (a, b) => a.revenue - b.revenue,
+                  defaultSortOrder: "descend",
+                },
+              ]}
+            />
+
+            <div className="eyebrow" style={{ marginBottom: 8 }}>
+              Revenue by {finGranularity === "week" ? "week" : finGranularity === "year" ? "year" : "month"}
+            </div>
+            <Table
+              rowKey="period"
+              dataSource={finances.breakdown ?? []}
+              pagination={false}
+              size="middle"
+              scroll={{ x: true }}
+              locale={{ emptyText: "No periods in this window" }}
+              columns={[
+                { title: "Period", dataIndex: "period" },
+                { title: "Confirmed", dataIndex: "booked_count", align: "right" },
+                { title: "Revenue", dataIndex: "revenue", align: "right", render: (v) => fmtPKR(v) },
+              ]}
+            />
+          </>
+        )}
+      </Card>
+
+      {/* Occupancy */}
+      <Card
+        style={{ marginBottom: 18 }}
+        title="Occupancy by estate"
+        extra={
+          <Dropdown menu={exportMenu("occupancy")}>
+            <Button size="small" icon={<DownloadOutlined />}>Export</Button>
+          </Dropdown>
+        }
+      >
+        {loading ? (
+          <Skeleton active />
+        ) : (
+          <Table
+            rowKey="farmhouse_id"
+            dataSource={occupancy}
+            pagination={false}
+            size="middle"
+            scroll={{ x: true }}
+            columns={[
+              { title: "Estate", dataIndex: "farmhouse_name" },
+              {
+                title: "Occupancy",
+                dataIndex: "occupancy_percent",
+                render: (v) => (
+                  <div style={{ minWidth: 160 }}>
+                    <Progress
+                      percent={v}
+                      size="small"
+                      strokeColor="var(--brass)"
+                      format={(p) => `${p}%`}
+                    />
+                  </div>
+                ),
+                sorter: (a, b) => a.occupancy_percent - b.occupancy_percent,
+                defaultSortOrder: "descend",
+              },
+            ]}
+          />
+        )}
+      </Card>
+
+      {/* Bookie performance */}
+      <Card
+        title="Bookie performance"
+        extra={
+          <Dropdown menu={exportMenu("bookie-performance")}>
+            <Button size="small" icon={<DownloadOutlined />}>Export</Button>
+          </Dropdown>
+        }
+      >
+        {loading ? (
+          <Skeleton active />
+        ) : (
+          <Table
+            rowKey="bookie_id"
+            dataSource={performance}
+            pagination={false}
+            size="middle"
+            scroll={{ x: true }}
+            columns={[
+              { title: "Bookie", dataIndex: "bookie_name" },
+              { title: "Submitted", dataIndex: "submitted", align: "right" },
+              { title: "Approved", dataIndex: "approved", align: "right", sorter: (a, b) => a.approved - b.approved, defaultSortOrder: "descend" },
+              { title: "Rejected", dataIndex: "rejected", align: "right" },
+              { title: "Canceled", dataIndex: "canceled", align: "right" },
+            ]}
+          />
+        )}
+      </Card>
+
+      <div style={{ marginTop: 18, display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <Dropdown menu={exportMenu("bookings")}>
+          <Button icon={<DownloadOutlined />}>Export all bookings</Button>
+        </Dropdown>
+      </div>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Main Reports page
-// ---------------------------------------------------------------------------
-
-export default function ReportsPage() {
-  const [start, setStart] = useState(iso365DaysAgo());
-  const [end, setEnd] = useState(isoToday());
-  const [farmhouseId, setFarmhouseId] = useState("");
-  const [farmhouses, setFarmhouses] = useState([]);
-
-  useEffect(() => {
-    listFarmhouses().then(setFarmhouses).catch(() => {});
-  }, []);
-
-  const filterRow = (
-    <div style={row}>
-      <label style={lbl}>
-        Start date
-        <input type="date" style={inp} value={start} onChange={(e) => setStart(e.target.value)} />
-      </label>
-      <label style={lbl}>
-        End date
-        <input type="date" style={inp} value={end} onChange={(e) => setEnd(e.target.value)} />
-      </label>
-      <label style={lbl}>
-        Farmhouse (occupancy filter)
-        <select style={inp} value={farmhouseId} onChange={(e) => setFarmhouseId(e.target.value)}>
-          <option value="">All</option>
-          {farmhouses.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-        </select>
-      </label>
-    </div>
-  );
-
-  return (
-    <section>
-      <h2 style={{ margin: "0 0 1rem" }}>Reports &amp; Analytics</h2>
-
-      <div style={card}>
-        <h3 style={{ margin: "0 0 0.75rem", fontSize: "0.95rem" }}>Date range &amp; filters</h3>
-        {filterRow}
-      </div>
-
-      <div style={card}>
-        <h3 style={{ margin: "0 0 0.75rem", fontSize: "0.95rem" }}>Booking Summary</h3>
-        <SummaryPanel start={start} end={end} />
-      </div>
-
-      <div style={card}>
-        <h3 style={{ margin: "0 0 0.75rem", fontSize: "0.95rem" }}>Occupancy</h3>
-        <OccupancyPanel start={start} end={end} farmhouseId={farmhouseId} />
-      </div>
-
-      <div style={card}>
-        <h3 style={{ margin: "0 0 0.75rem", fontSize: "0.95rem" }}>Bookie Performance</h3>
-        <BookiePerformancePanel start={start} end={end} />
-      </div>
-
-      <div style={card}>
-        <h3 style={{ margin: "0 0 0.75rem", fontSize: "0.95rem" }}>Search Bookings</h3>
-        <BookingsSearchPanel farmhouses={farmhouses} />
-      </div>
-
-      <div style={card}>
-        <h3 style={{ margin: "0 0 0.75rem", fontSize: "0.95rem" }}>Export</h3>
-        <p style={{ fontSize: "0.8rem", color: "#666", marginTop: 0 }}>
-          Exports use the date range selected above. Farmhouse filter applies to occupancy exports.
-        </p>
-        <ExportControls start={start} end={end} farmhouseId={farmhouseId} />
-      </div>
-    </section>
   );
 }

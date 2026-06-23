@@ -37,13 +37,24 @@ def log_activity(
     target_type: str | None = None,
     target_id: int | None = None,
     note: str | None = None,
+    tenant_id: int | None = None,
 ) -> ActivityLog:
     """Append an audit entry.
 
     Adds the row and flushes to assign ``entry.id``.
     The *caller* must commit the session to persist the row.
+
+    ``tenant_id`` is auto-derived from the acting user when not supplied, so
+    every existing caller scopes its activity to the right estate unchanged.
     """
+    if tenant_id is None and actor_id is not None:
+        from app.models.user import User  # local import avoids a cycle
+        actor = db.get(User, actor_id)
+        if actor is not None:
+            tenant_id = actor.tenant_id
+
     entry = ActivityLog(
+        tenant_id=tenant_id,
         actor_id=actor_id,
         action=action,
         target_type=target_type,

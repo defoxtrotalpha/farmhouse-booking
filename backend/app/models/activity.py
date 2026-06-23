@@ -18,6 +18,12 @@ class ActivityLog(Base):
     __tablename__ = "activity_logs"
 
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(
+        Integer,
+        ForeignKey("tenants.id"),
+        nullable=True,
+        index=True,
+    )
     actor_id = Column(
         Integer,
         ForeignKey("users.id", ondelete="SET NULL"),

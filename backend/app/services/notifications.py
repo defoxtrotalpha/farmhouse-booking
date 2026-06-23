@@ -56,19 +56,20 @@ CRITICAL_TYPES: frozenset[str] = frozenset(
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _event_title(event_type: str, booking_id: int) -> str:
+def _event_title(event_type: str, booking_id: int, bookie_name: str = "") -> str:
+    who = f" by {bookie_name}" if bookie_name else ""
     _titles: dict[str, str] = {
-        "hold.created":             f"Hold placed (booking #{booking_id})",
-        "request.submitted":        f"Booking request submitted (#{booking_id})",
-        "booking.approved":         f"Booking #{booking_id} approved",
-        "request.rejected":         f"Booking request #{booking_id} rejected",
+        "hold.created":             f"Hold placed{who} — booking #{booking_id}",
+        "request.submitted":        f"Booking request{who} — #{booking_id}",
+        "booking.approved":         f"Booking #{booking_id} confirmed",
+        "request.rejected":         f"Booking #{booking_id} declined",
         "booking.canceled":         f"Booking #{booking_id} canceled",
-        "booking.withdrawn":        f"Booking #{booking_id} withdrawn",
-        "booking.cancel_requested": f"Cancellation requested for booking #{booking_id}",
-        "booking.cancel_confirmed": f"Cancellation confirmed for booking #{booking_id}",
-        "booking.reminder":         f"Upcoming booking #{booking_id} starts soon",
+        "booking.withdrawn":        f"Booking #{booking_id} withdrawn{who}",
+        "booking.cancel_requested": f"Cancellation requested — booking #{booking_id}",
+        "booking.cancel_confirmed": f"Booking #{booking_id} cancellation confirmed",
+        "booking.reminder":         f"Reminder: booking #{booking_id} starts soon",
     }
-    return _titles.get(event_type, f"Booking event: {event_type} (#{booking_id})")
+    return _titles.get(event_type, f"Booking update (#{booking_id})")
 
 
 # ---------------------------------------------------------------------------
@@ -181,27 +182,37 @@ def dispatch_booking_event(
     """
     from app.models.user import User
 
-    # ── collect active admins ─────────────────────────────────────────────────
+    # ── collect active admins scoped to the booking's company ─────────────────
     admins = (
         db.query(User)
-        .filter(User.role == "admin", User.is_active == True)  # noqa: E712
+        .filter(
+            User.role == "admin",
+            User.is_active == True,  # noqa: E712
+            User.tenant_id == booking.tenant_id,
+        )
         .all()
     )
     admin_map: dict[int, User] = {a.id: a for a in admins}
+
+    # ── bookie context for human-readable notification titles ─────────────────
+    bookie_user: User | None = db.get(User, booking.bookie_id)
+    bookie_label = (
+        (bookie_user.name or bookie_user.email or f"User #{booking.bookie_id}")
+        if bookie_user
+        else f"User #{booking.bookie_id}"
+    )
 
     # ── deduped recipient set: admins + bookie, excluding the actor ───────────
     recipient_ids: set[int] = set(admin_map.keys())
     recipient_ids.add(booking.bookie_id)
     recipient_ids.discard(actor_id)
 
-    title = _event_title(type, booking.id)
+    title = _event_title(type, booking.id, bookie_label)
 
     # ── build user lookup for email delivery ──────────────────────────────────
     user_map: dict[int, User] = dict(admin_map)
-    if booking.bookie_id not in user_map:
-        bookie = db.get(User, booking.bookie_id)
-        if bookie:
-            user_map[booking.bookie_id] = bookie
+    if booking.bookie_id not in user_map and bookie_user:
+        user_map[booking.bookie_id] = bookie_user
 
     # ── create in-app notifications ───────────────────────────────────────────
     notifications = []

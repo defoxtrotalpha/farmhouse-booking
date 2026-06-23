@@ -12,6 +12,7 @@ from app.models.policy import Policy
 from app.models.user import User
 from app.schemas.policy import PolicyCreate, PolicyRead, PolicyUpdate
 from app.services.activity import log_activity
+from app.tenancy import tenant_clause
 
 router = APIRouter(prefix="/api", tags=["policies"])
 
@@ -25,7 +26,9 @@ def list_policies(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return db.query(Policy).order_by(Policy.id).all()
+    return db.query(Policy).filter(
+        tenant_clause(Policy.tenant_id, current_user.tenant_id)
+    ).order_by(Policy.id).all()
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +41,10 @@ def get_policy(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    policy = db.query(Policy).filter_by(id=policy_id).first()
+    policy = db.query(Policy).filter(
+        Policy.id == policy_id,
+        tenant_clause(Policy.tenant_id, current_user.tenant_id),
+    ).first()
     if policy is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy not found")
     return policy
@@ -55,6 +61,7 @@ def create_policy(
     current_user: User = Depends(require_admin),
 ):
     policy = Policy(
+        tenant_id=current_user.tenant_id,
         title=payload.title,
         body=payload.body,
         version=1,
@@ -84,7 +91,10 @@ def update_policy(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    policy = db.query(Policy).filter_by(id=policy_id).first()
+    policy = db.query(Policy).filter(
+        Policy.id == policy_id,
+        tenant_clause(Policy.tenant_id, current_user.tenant_id),
+    ).first()
     if policy is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy not found")
 

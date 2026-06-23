@@ -75,7 +75,31 @@ class BookingRead(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # Enriched display fields (attached by the router; not stored on the model).
+    # Let the UI show "who booked it" and the venue name without extra lookups.
+    farmhouse_name: Optional[str] = None
+    bookie_name: Optional[str] = None
+
     model_config = {"from_attributes": True}
+
+
+class DirectBookRequest(BaseModel):
+    """POST /api/bookings/direct request body (admin only).
+
+    Lets an admin create a confirmed booking in one step (no hold/submit/approve
+    flow). Resolves the Issues.md gap: "for admin, it should not ask me to place
+    hold, it should give me option to book directly".
+    """
+
+    farmhouse_id: int
+    start_at: datetime
+    end_at: datetime
+    client_name: str
+    client_contact: str
+    event_type: Optional[str] = None
+    event_info: Optional[str] = None
+    notes: Optional[str] = None
+    quoted_price: Optional[float] = None
 
 
 # ---------------------------------------------------------------------------
@@ -128,16 +152,12 @@ class RejectBatchResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class CancelRequest(BaseModel):
-    """POST /api/bookings/{id}/cancel request body (admin only)."""
+    """POST /api/bookings/{id}/cancel request body (admin only).
 
-    reason: str
+    Reason is optional — an admin may cancel without giving one.
+    """
 
-    @field_validator("reason")
-    @classmethod
-    def reason_non_empty(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("reason must not be empty")
-        return v
+    reason: Optional[str] = None
 
 
 class WithdrawRequest(BaseModel):

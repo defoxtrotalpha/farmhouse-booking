@@ -1,385 +1,299 @@
-/**
- * ApproveQueue — Admin view listing PENDING bookings with an Approve action.
- *
- * Slice #23: approve -> booked (+ 409 conflict feedback).
- * Slice #24: after approve, fetch /conflicts and show overlapping losers
- *            with a reason input + Reject Selected button (calls /reject-batch).
- *            On 409 conflict from /approve, offer to reject the pending that failed.
- * Slice #26: cancel section — booked events with pending cancel requests
- *            that need admin confirmation.
- */
-import { useEffect, useState } from "react";
-import { listBookings, approveBooking, getConflicts, rejectBatch, rejectBooking, cancelBooking, confirmCancel } from "./api.js";
+import { useEffect, useMemo, useState } from "react";
+import {
+  App as AntApp,
+  Button,
+  Card,
+  Checkbox,
+  Input,
+  Modal,
+  Popconfirm,
+  Skeleton,
+  Tabs,
+} from "antd";
+import { CheckOutlined, CloseOutlined, ReloadOutlined } from "@ant-design/icons";
 
-function fmtDt(iso) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString("en-PK", { timeZone: "Asia/Karachi" });
-}
+import {
+  listBookings,
+  approveBooking,
+  getConflicts,
+  rejectBatch,
+  rejectBooking,
+  cancelBooking,
+  confirmCancel,
+} from "./api.js";
+import {
+  PageHeader,
+  Stagger,
+  StaggerItem,
+  LedgerCard,
+  EmptyNote,
+} from "./ui.jsx";
+import { bookingNo, fmtDateTime, fmtTime, fmtDate } from "./theme.js";
 
-// ---------------------------------------------------------------------------
-// ConflictPanel — shown beneath a row after a successful approve
-// ---------------------------------------------------------------------------
-function ConflictPanel({ bookedId, onDone }) {
-  const [losers, setLosers]       = useState(null);   // null=loading
-  const [reason, setReason]       = useState("");
-  const [selected, setSelected]   = useState([]);      // ids to reject
-  const [status, setStatus]       = useState(null);    // { ok, text }
-  const [working, setWorking]     = useState(false);
-
-  useEffect(() => {
-    getConflicts(bookedId)
-      .then((data) => {
-        setLosers(data);
-        setSelected(data.map((b) => b.id));  // pre-select all
-      })
-      .catch(() => setLosers([]));
-  }, [bookedId]);
-
-  if (losers === null) return <p style={{ margin: "0.4rem 0", fontSize: "0.8rem" }}>Loading conflicts…</p>;
-  if (losers.length === 0) return <p style={{ margin: "0.4rem 0", fontSize: "0.8rem", color: "#555" }}>No overlapping requests to reject.</p>;
-
-  function toggleSelect(id) {
-    setSelected((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-  }
-
-  async function handleRejectSelected() {
-    if (!reason.trim()) { setStatus({ ok: false, text: "Enter a rejection reason first." }); return; }
-    if (selected.length === 0) { setStatus({ ok: false, text: "Select at least one booking to reject." }); return; }
-    setWorking(true);
-    setStatus(null);
-    try {
-      const result = await rejectBatch(selected, reason);
-      setStatus({ ok: true, text: `Rejected ${result.rejected.length} booking(s).` });
-      setTimeout(onDone, 1200);
-    } catch (e) {
-      setStatus({ ok: false, text: e.message });
-    } finally {
-      setWorking(false);
-    }
-  }
-
-  return (
-    <div style={{ marginTop: "0.5rem", padding: "0.5rem", background: "#fff8e1", borderRadius: "4px", fontSize: "0.8rem" }}>
-      <strong>Overlapping requests ({losers.length}) — reject the losers:</strong>
-      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "0.3rem" }}>
-        <thead>
-          <tr style={{ textAlign: "left" }}>
-            <th style={{ padding: "0.2rem 0.4rem" }}>☑</th>
-            <th style={{ padding: "0.2rem 0.4rem" }}>#</th>
-            <th style={{ padding: "0.2rem 0.4rem" }}>Status</th>
-            <th style={{ padding: "0.2rem 0.4rem" }}>Start (PKT)</th>
-            <th style={{ padding: "0.2rem 0.4rem" }}>End (PKT)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {losers.map((b) => (
-            <tr key={b.id}>
-              <td style={{ padding: "0.2rem 0.4rem" }}>
-                <input type="checkbox" checked={selected.includes(b.id)}
-                  onChange={() => toggleSelect(b.id)} />
-              </td>
-              <td style={{ padding: "0.2rem 0.4rem" }}>{b.id}</td>
-              <td style={{ padding: "0.2rem 0.4rem" }}>{b.status}</td>
-              <td style={{ padding: "0.2rem 0.4rem" }}>{fmtDt(b.start_at)}</td>
-              <td style={{ padding: "0.2rem 0.4rem" }}>{fmtDt(b.end_at)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div style={{ marginTop: "0.4rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
-        <input
-          type="text"
-          placeholder="Rejection reason (required)"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          style={{ flex: 1, padding: "0.2rem 0.4rem", fontSize: "0.8rem" }}
-        />
-        <button onClick={handleRejectSelected} disabled={working}
-          style={{ cursor: "pointer", padding: "0.2rem 0.6rem", fontSize: "0.8rem" }}>
-          Reject Selected
-        </button>
-      </div>
-      {status && (
-        <p style={{ margin: "0.3rem 0 0", color: status.ok ? "#1a7f37" : "#b00020" }}>{status.text}</p>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// ConflictRejectOffer — shown when /approve returns 409 conflict
-// ---------------------------------------------------------------------------
-function ConflictRejectOffer({ pendingId, conflictBookedId, onDone }) {
-  const [reason, setReason]   = useState("");
-  const [status, setStatus]   = useState(null);
-  const [working, setWorking] = useState(false);
-
-  async function handleReject() {
-    if (!reason.trim()) { setStatus({ ok: false, text: "Enter a rejection reason." }); return; }
-    setWorking(true);
-    setStatus(null);
-    try {
-      await rejectBooking(pendingId, reason);
-      setStatus({ ok: true, text: `Booking #${pendingId} rejected.` });
-      setTimeout(onDone, 1200);
-    } catch (e) {
-      setStatus({ ok: false, text: e.message });
-    } finally {
-      setWorking(false);
-    }
-  }
-
-  return (
-    <div style={{ marginTop: "0.4rem", padding: "0.4rem", background: "#fce4ec", borderRadius: "4px", fontSize: "0.8rem" }}>
-      Slot already confirmed as booking #{conflictBookedId}. Reject this request?
-      <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.3rem", alignItems: "center" }}>
-        <input type="text" placeholder="Reason" value={reason} onChange={(e) => setReason(e.target.value)}
-          style={{ flex: 1, padding: "0.2rem 0.4rem", fontSize: "0.8rem" }} />
-        <button onClick={handleReject} disabled={working}
-          style={{ cursor: "pointer", padding: "0.2rem 0.5rem", fontSize: "0.8rem" }}>
-          Reject #{pendingId}
-        </button>
-      </div>
-      {status && <p style={{ margin: "0.2rem 0 0", color: status.ok ? "#1a7f37" : "#b00020" }}>{status.text}</p>}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// ApproveQueue — main component
-// ---------------------------------------------------------------------------
 export default function ApproveQueue() {
-  const [bookings, setBookings]     = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState(null);
-  // per-id state: { ok, text, panel: 'conflicts'|'conflict_offer'|null, bookedId, conflictBookedId }
-  const [actionMsg, setActionMsg]   = useState({});
+  const { message } = AntApp.useApp();
+  const [pending, setPending] = useState(null);
+  const [cancelReqs, setCancelReqs] = useState([]);
+  const [busyId, setBusyId] = useState(null);
 
-  // Cancel-request queue (booked events with pending cancel requests)
-  const [cancelReqBookings, setCancelReqBookings] = useState([]);
-  const [cancelMsgs, setCancelMsgs]               = useState({});
+  // conflict resolution modal
+  const [conflictModal, setConflictModal] = useState(null); // { bookedId, losers, selected, reason }
+  // 409 reject offer
+  const [rejectOffer, setRejectOffer] = useState(null); // { pendingId, conflictId, reason }
+  // manual reject
+  const [rejectModal, setRejectModal] = useState(null); // { booking, reason }
 
   async function load() {
-    setLoading(true);
-    setError(null);
     try {
-      const [pending, booked] = await Promise.all([
+      const [p, booked] = await Promise.all([
         listBookings({ status: "pending" }),
         listBookings({ status: "booked" }),
       ]);
-      setBookings(pending);
-      setCancelReqBookings(booked.filter((b) => b.cancel_requested_at != null));
+      setPending(p);
+      setCancelReqs(booked.filter((b) => b.cancel_requested_at != null));
     } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
+      message.error(e.message);
+      setPending([]);
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []); // eslint-disable-line
 
-  async function handleApprove(id) {
-    setActionMsg((prev) => ({ ...prev, [id]: null }));
+  async function handleApprove(b) {
+    setBusyId(b.id);
     try {
-      const approved = await approveBooking(id);
-      setActionMsg((prev) => ({
-        ...prev,
-        [id]: { ok: true, text: "Approved — now Booked.", panel: "conflicts", bookedId: approved.id },
-      }));
-      // Remove from pending list after short delay so user sees conflict panel
-      setTimeout(() => setBookings((prev) => prev.filter((b) => b.id !== id)), 1500);
-    } catch (e) {
-      if (e.status === 409 && e.conflict_booking_id != null) {
-        setActionMsg((prev) => ({
-          ...prev,
-          [id]: {
-            ok: false,
-            text: `Conflict with booking #${e.conflict_booking_id}.`,
-            panel: "conflict_offer",
-            conflictBookedId: e.conflict_booking_id,
-          },
-        }));
-      } else {
-        const msg = e.message ?? "Approval failed";
-        setActionMsg((prev) => ({ ...prev, [id]: { ok: false, text: msg, panel: null } }));
+      const approved = await approveBooking(b.id);
+      message.success(`${bookingNo(b.id)} confirmed.`);
+      // find overlapping losers to optionally reject
+      const losers = await getConflicts(approved.id).catch(() => []);
+      if (losers.length) {
+        setConflictModal({ bookedId: approved.id, losers, selected: losers.map((l) => l.id), reason: "" });
       }
+      load();
+    } catch (e) {
+      if (e.status === 409 && e.conflict_booking_id) {
+        setRejectOffer({ pendingId: b.id, conflictId: e.conflict_booking_id, reason: "" });
+      } else {
+        message.error(e.message ?? "Approval failed");
+      }
+    } finally {
+      setBusyId(null);
     }
   }
 
-  if (loading) return <p>Loading pending bookings…</p>;
-  if (error)   return <p style={{ color: "#b00020" }}>Error: {error}</p>;
-  if (bookings.length === 0) return <p>No pending bookings.</p>;
+  async function doRejectBatch() {
+    const { selected, reason } = conflictModal;
+    if (!reason.trim()) return message.warning("Add a rejection reason.");
+    if (!selected.length) return message.warning("Select at least one request.");
+    try {
+      const res = await rejectBatch(selected, reason);
+      message.success(`Rejected ${res.rejected.length} request(s).`);
+      setConflictModal(null);
+      load();
+    } catch (e) {
+      message.error(e.message);
+    }
+  }
+
+  async function doRejectOffer() {
+    const { pendingId, reason } = rejectOffer;
+    if (!reason.trim()) return message.warning("Add a rejection reason.");
+    try {
+      await rejectBooking(pendingId, reason);
+      message.success(`${bookingNo(pendingId)} rejected.`);
+      setRejectOffer(null);
+      load();
+    } catch (e) {
+      message.error(e.message);
+    }
+  }
+
+  async function doReject() {
+    const { booking, reason } = rejectModal;
+    if (!reason.trim()) return message.warning("Add a rejection reason.");
+    try {
+      await rejectBooking(booking.id, reason);
+      message.success(`${bookingNo(booking.id)} rejected.`);
+      setRejectModal(null);
+      load();
+    } catch (e) {
+      message.error(e.message);
+    }
+  }
+
+  async function handleConfirmCancel(b) {
+    setBusyId(b.id);
+    try {
+      await confirmCancel(b.id);
+      message.success("Cancellation confirmed.");
+      load();
+    } catch (e) {
+      message.error(e.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const pendingTab = (
+    <>
+      {pending === null ? (
+        <Card><Skeleton active /></Card>
+      ) : pending.length === 0 ? (
+        <EmptyNote icon={<CheckOutlined />} title="Inbox zero" hint="No requests are waiting for approval." />
+      ) : (
+        <Stagger>
+          {pending.map((b) => (
+            <StaggerItem key={b.id}>
+              <LedgerCard
+                booking={b}
+                footer={
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <Popconfirm
+                      title="Approve & confirm this booking?"
+                      okText="Approve"
+                      onConfirm={() => handleApprove(b)}
+                    >
+                      <Button type="primary" icon={<CheckOutlined />} loading={busyId === b.id}>
+                        Approve
+                      </Button>
+                    </Popconfirm>
+                    <Button icon={<CloseOutlined />} onClick={() => setRejectModal({ booking: b, reason: "" })}>
+                      Reject
+                    </Button>
+                  </div>
+                }
+              />
+            </StaggerItem>
+          ))}
+        </Stagger>
+      )}
+    </>
+  );
+
+  const cancelTab = (
+    <>
+      {cancelReqs.length === 0 ? (
+        <EmptyNote title="No cancellation requests" hint="Booked events with a pending cancellation appear here." />
+      ) : (
+        <Stagger>
+          {cancelReqs.map((b) => (
+            <StaggerItem key={b.id}>
+              <LedgerCard
+                booking={b}
+                footer={
+                  <div>
+                    {b.cancel_reason && <p className="muted" style={{ fontSize: 13, margin: "0 0 8px" }}>“{b.cancel_reason}”</p>}
+                    <Popconfirm title="Confirm cancellation?" description="This frees the slot." okButtonProps={{ danger: true }} onConfirm={() => handleConfirmCancel(b)}>
+                      <Button danger loading={busyId === b.id}>Confirm cancellation</Button>
+                    </Popconfirm>
+                  </div>
+                }
+              />
+            </StaggerItem>
+          ))}
+        </Stagger>
+      )}
+    </>
+  );
+
+  const pendingCount = pending?.length ?? 0;
 
   return (
-    <section>
-      <h2 style={{ marginTop: 0, fontSize: "1rem" }}>Pending Approvals</h2>
-      <button onClick={load} style={{ marginBottom: "1rem", cursor: "pointer" }}>
-        Refresh
-      </button>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
-        <thead>
-          <tr style={{ borderBottom: "2px solid #e5e5e5", textAlign: "left" }}>
-            <th style={{ padding: "0.4rem 0.6rem" }}>#</th>
-            <th style={{ padding: "0.4rem 0.6rem" }}>Farmhouse</th>
-            <th style={{ padding: "0.4rem 0.6rem" }}>Client</th>
-            <th style={{ padding: "0.4rem 0.6rem" }}>Start (PKT)</th>
-            <th style={{ padding: "0.4rem 0.6rem" }}>End (PKT)</th>
-            <th style={{ padding: "0.4rem 0.6rem" }}>Event</th>
-            <th style={{ padding: "0.4rem 0.6rem" }}>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {bookings.map((b) => {
-            const msg = actionMsg[b.id];
-            return (
-              <tr key={b.id} style={{ borderBottom: "1px solid #f0f0f0" }}>
-                <td style={{ padding: "0.4rem 0.6rem" }}>{b.id}</td>
-                <td style={{ padding: "0.4rem 0.6rem" }}>{b.farmhouse_id}</td>
-                <td style={{ padding: "0.4rem 0.6rem" }}>{b.client_name ?? "—"}</td>
-                <td style={{ padding: "0.4rem 0.6rem" }}>{fmtDt(b.start_at)}</td>
-                <td style={{ padding: "0.4rem 0.6rem" }}>{fmtDt(b.end_at)}</td>
-                <td style={{ padding: "0.4rem 0.6rem" }}>{b.event_type ?? "—"}</td>
-                <td style={{ padding: "0.4rem 0.6rem" }}>
-                  <button
-                    onClick={() => handleApprove(b.id)}
-                    disabled={!!msg}
-                    style={{ cursor: "pointer", padding: "0.2rem 0.6rem" }}
-                  >
-                    Approve
-                  </button>
-                  {msg && (
-                    <span
-                      style={{
-                        marginLeft: "0.5rem",
-                        color: msg.ok ? "#1a7f37" : "#b00020",
-                        fontSize: "0.8rem",
-                      }}
-                    >
-                      {msg.text}
-                    </span>
-                  )}
-                  {msg?.panel === "conflicts" && (
-                    <ConflictPanel
-                      bookedId={msg.bookedId}
-                      onDone={() => {
-                        setActionMsg((prev) => ({ ...prev, [b.id]: null }));
-                        load();
-                      }}
-                    />
-                  )}
-                  {msg?.panel === "conflict_offer" && (
-                    <ConflictRejectOffer
-                      pendingId={b.id}
-                      conflictBookedId={msg.conflictBookedId}
-                      onDone={() => {
-                        setBookings((prev) => prev.filter((x) => x.id !== b.id));
-                        setActionMsg((prev) => ({ ...prev, [b.id]: null }));
-                      }}
-                    />
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div>
+      <PageHeader
+        eyebrow="Admin"
+        title="Approvals"
+        subtitle="Approve exactly one request per slot. Overlapping requests are flagged so you can clear them in one step."
+        extra={<Button icon={<ReloadOutlined />} onClick={load}>Refresh</Button>}
+      />
 
-      {/* ── Cancellation Requests (slice #26) ─────────────────────────── */}
-      <h2 style={{ marginTop: "2rem", fontSize: "1rem" }}>
-        Cancellation Requests ({cancelReqBookings.length})
-      </h2>
-      {cancelReqBookings.length === 0 ? (
-        <p style={{ fontSize: "0.875rem", color: "#555" }}>No pending cancellation requests.</p>
-      ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
-          <thead>
-            <tr style={{ borderBottom: "2px solid #e5e5e5", textAlign: "left" }}>
-              <th style={{ padding: "0.4rem 0.6rem" }}>#</th>
-              <th style={{ padding: "0.4rem 0.6rem" }}>FH</th>
-              <th style={{ padding: "0.4rem 0.6rem" }}>Client</th>
-              <th style={{ padding: "0.4rem 0.6rem" }}>Start (PKT)</th>
-              <th style={{ padding: "0.4rem 0.6rem" }}>Cancel Reason</th>
-              <th style={{ padding: "0.4rem 0.6rem" }}>Requested At</th>
-              <th style={{ padding: "0.4rem 0.6rem" }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {cancelReqBookings.map((b) => {
-              const cm = cancelMsgs[b.id];
+      <Tabs
+        items={[
+          { key: "pending", label: `Requests${pendingCount ? ` (${pendingCount})` : ""}`, children: pendingTab },
+          { key: "cancel", label: `Cancellations${cancelReqs.length ? ` (${cancelReqs.length})` : ""}`, children: cancelTab },
+        ]}
+      />
 
-              async function handleConfirmCancel() {
-                setCancelMsgs((prev) => ({ ...prev, [b.id]: null }));
-                try {
-                  await confirmCancel(b.id);
-                  setCancelMsgs((prev) => ({
-                    ...prev,
-                    [b.id]: { ok: true, text: "Cancellation confirmed." },
-                  }));
-                  setTimeout(load, 900);
-                } catch (e) {
-                  setCancelMsgs((prev) => ({
-                    ...prev,
-                    [b.id]: { ok: false, text: e.message ?? "Failed" },
-                  }));
-                }
-              }
+      {/* Conflict resolution after approval */}
+      <Modal
+        open={!!conflictModal}
+        title="Clear overlapping requests"
+        okText="Reject selected"
+        okButtonProps={{ danger: true }}
+        onOk={doRejectBatch}
+        onCancel={() => setConflictModal(null)}
+      >
+        {conflictModal && (
+          <>
+            <p className="muted" style={{ marginTop: 0 }}>
+              These holds and requests overlap the booking you just confirmed. Reject the ones that can no longer happen.
+            </p>
+            <div className="stack" style={{ marginBottom: 12 }}>
+              {conflictModal.losers.map((l) => (
+                <label key={l.id} style={{ display: "flex", gap: 10, alignItems: "center", border: "1px solid var(--hairline)", borderRadius: 10, padding: "8px 10px" }}>
+                  <Checkbox
+                    checked={conflictModal.selected.includes(l.id)}
+                    onChange={(e) =>
+                      setConflictModal((m) => ({
+                        ...m,
+                        selected: e.target.checked ? [...m.selected, l.id] : m.selected.filter((x) => x !== l.id),
+                      }))
+                    }
+                  />
+                  <span className="mono">{bookingNo(l.id)}</span>
+                  <span className="muted" style={{ fontSize: 13 }}>
+                    {fmtDate(l.start_at)} · {fmtTime(l.start_at)}–{fmtTime(l.end_at)}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <Input.TextArea
+              rows={2}
+              placeholder="Rejection reason (sent to the affected bookies)"
+              value={conflictModal.reason}
+              onChange={(e) => setConflictModal((m) => ({ ...m, reason: e.target.value }))}
+            />
+          </>
+        )}
+      </Modal>
 
-              async function handleDirectCancel() {
-                const reason = window.prompt("Cancel reason:");
-                if (!reason || !reason.trim()) return;
-                setCancelMsgs((prev) => ({ ...prev, [b.id]: null }));
-                try {
-                  await cancelBooking(b.id, reason);
-                  setCancelMsgs((prev) => ({
-                    ...prev,
-                    [b.id]: { ok: true, text: "Booking canceled." },
-                  }));
-                  setTimeout(load, 900);
-                } catch (e) {
-                  setCancelMsgs((prev) => ({
-                    ...prev,
-                    [b.id]: { ok: false, text: e.message ?? "Failed" },
-                  }));
-                }
-              }
+      {/* 409 conflict on approve */}
+      <Modal
+        open={!!rejectOffer}
+        title="Slot already confirmed"
+        okText="Reject this request"
+        okButtonProps={{ danger: true }}
+        onOk={doRejectOffer}
+        onCancel={() => setRejectOffer(null)}
+      >
+        {rejectOffer && (
+          <>
+            <p className="muted" style={{ marginTop: 0 }}>
+              This slot was just confirmed as {bookingNo(rejectOffer.conflictId)}. Reject the request you tried to approve?
+            </p>
+            <Input.TextArea rows={2} placeholder="Rejection reason" value={rejectOffer.reason} onChange={(e) => setRejectOffer((m) => ({ ...m, reason: e.target.value }))} />
+          </>
+        )}
+      </Modal>
 
-              return (
-                <tr key={b.id} style={{ borderBottom: "1px solid #f0f0f0" }}>
-                  <td style={{ padding: "0.4rem 0.6rem" }}>{b.id}</td>
-                  <td style={{ padding: "0.4rem 0.6rem" }}>{b.farmhouse_id}</td>
-                  <td style={{ padding: "0.4rem 0.6rem" }}>{b.client_name ?? "—"}</td>
-                  <td style={{ padding: "0.4rem 0.6rem" }}>{new Date(b.start_at).toLocaleString("en-PK", { timeZone: "Asia/Karachi" })}</td>
-                  <td style={{ padding: "0.4rem 0.6rem" }}>{b.cancel_reason ?? "—"}</td>
-                  <td style={{ padding: "0.4rem 0.6rem" }}>{new Date(b.cancel_requested_at).toLocaleString("en-PK", { timeZone: "Asia/Karachi" })}</td>
-                  <td style={{ padding: "0.4rem 0.6rem" }}>
-                    <button
-                      onClick={handleConfirmCancel}
-                      disabled={!!cm}
-                      style={{ cursor: "pointer", padding: "0.2rem 0.6rem", background: "#fff3cd", marginRight: "0.3rem" }}
-                    >
-                      Confirm Cancellation
-                    </button>
-                    <button
-                      onClick={handleDirectCancel}
-                      disabled={!!cm}
-                      style={{ cursor: "pointer", padding: "0.2rem 0.6rem" }}
-                    >
-                      Cancel (direct)
-                    </button>
-                    {cm && (
-                      <span style={{ marginLeft: "0.4rem", fontSize: "0.8rem", color: cm.ok ? "#1a7f37" : "#b00020" }}>
-                        {cm.text}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-    </section>
+      {/* Manual reject */}
+      <Modal
+        open={!!rejectModal}
+        title={rejectModal ? `Reject ${bookingNo(rejectModal.booking.id)}` : ""}
+        okText="Reject"
+        okButtonProps={{ danger: true }}
+        onOk={doReject}
+        onCancel={() => setRejectModal(null)}
+      >
+        {rejectModal && (
+          <>
+            <p className="muted" style={{ marginTop: 0 }}>{rejectModal.booking.client_name} · {fmtDateTime(rejectModal.booking.start_at)}</p>
+            <Input.TextArea rows={2} placeholder="Rejection reason" value={rejectModal.reason} onChange={(e) => setRejectModal((m) => ({ ...m, reason: e.target.value }))} />
+          </>
+        )}
+      </Modal>
+    </div>
   );
 }

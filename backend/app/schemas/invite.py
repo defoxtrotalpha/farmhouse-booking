@@ -7,6 +7,12 @@ from pydantic import BaseModel, field_validator
 class InviteRequest(BaseModel):
     name: str
     email: str
+    role: str = "bookie"
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        return v if v in ("bookie", "admin") else "bookie"
 
     @field_validator("email", mode="before")
     @classmethod
@@ -21,6 +27,7 @@ class InviteResponse(BaseModel):
     email: str
     name: str
     role: str
+    set_password_url: str | None = None
 
     model_config = {"from_attributes": True}
 

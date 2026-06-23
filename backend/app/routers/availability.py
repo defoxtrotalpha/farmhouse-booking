@@ -26,6 +26,7 @@ from app.models.farmhouse import Farmhouse
 from app.models.user import User
 from app.schemas.booking import AvailabilityEntry
 from app.services.availability import get_occupied_bookings
+from app.tenancy import tenant_clause
 
 router = APIRouter(prefix="/api", tags=["availability"])
 
@@ -54,7 +55,10 @@ def get_availability(
             detail="start must be strictly before end",
         )
 
-    fh = db.query(Farmhouse).filter_by(id=farmhouse_id).first()
+    fh = db.query(Farmhouse).filter(
+        Farmhouse.id == farmhouse_id,
+        tenant_clause(Farmhouse.tenant_id, current_user.tenant_id),
+    ).first()
     if fh is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

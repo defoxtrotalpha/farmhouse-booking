@@ -29,7 +29,7 @@ def create_invite(
     body: InviteRequest,
     db: Session = Depends(get_db),
     _admin: User = Depends(require_admin),
-) -> User:
+) -> InviteResponse:
     settings = get_settings()
     email = body.email.lower()
 
@@ -38,12 +38,13 @@ def create_invite(
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
-    # Create invited (inactive) user with no password
+    # Create invited (inactive) user with no password, in the admin's company
     user = User(
+        tenant_id=_admin.tenant_id,
         email=email,
         name=body.name,
         password_hash=None,
-        role="bookie",
+        role=body.role if body.role in ("bookie", "admin") else "bookie",
         is_active=False,
     )
     db.add(user)
@@ -64,7 +65,8 @@ def create_invite(
     db.commit()
     db.refresh(user)
 
-    # Send invite email (token goes only into the email link, not the response)
+    # Send invite email (logged in dev) AND return the link so the admin can
+    # copy/share it directly — no mail server required.
     set_password_url = f"{settings.frontend_origin}/set-password?token={token_str}"
     sender = get_email_sender()
     sender.send(
@@ -73,7 +75,7 @@ def create_invite(
             subject="You've been invited to Farmhouse Booking",
             body=(
                 f"Hello {body.name},\n\n"
-                f"You have been invited to join Farmhouse Booking as a bookie.\n"
+                f"You have been invited to join Farmhouse Booking as a(n) {user.role}.\n"
                 f"Click the link below to set your password and activate your account:\n\n"
                 f"{set_password_url}\n\n"
                 f"This link expires in {settings.invite_token_hours} hours.\n"
@@ -81,7 +83,46 @@ def create_invite(
         )
     )
 
-    return user
+    return InviteResponse(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        role=user.role,
+        set_password_url=set_password_url,
+    )
+
+
+@router.delete("/invites/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def cancel_invite(
+    user_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Cancel a pending invite — deletes the invite token(s) and the unaccepted user."""
+    user: User | None = db.get(User, user_id)
+    if user is None or user.tenant_id != admin.tenant_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if user.password_hash is not None or user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This user has already accepted the invite; remove them instead",
+        )
+
+    db.query(InviteToken).filter(InviteToken.user_id == user.id).delete(
+        synchronize_session=False
+    )
+    log_activity(
+        db,
+        actor_id=admin.id,
+        action="bookie.invite_canceled",
+        target_type="user",
+        target_id=user.id,
+        note=user.email,
+        tenant_id=admin.tenant_id,
+    )
+    db.delete(user)
+    db.commit()
+    return None
 
 
 @router.post("/invites/set-password", status_code=status.HTTP_200_OK)

@@ -25,10 +25,12 @@ from app.dependencies import get_current_user, require_admin
 from app.models.booking import Booking
 from app.models.farmhouse import Farmhouse
 from app.models.settings import get_or_create_settings
+from app.models.user import User
 from app.schemas.booking import (
     BookingRead, HoldRequest, SubmitRequest,
     RejectRequest, RejectBatchRequest, RejectBatchResponse,
     CancelRequest, WithdrawRequest, RequestCancelBody,
+    DirectBookRequest,
 )
 from app.services.activity import log_activity
 from app.services.booking_engine import find_booked_conflict, find_overlapping_unresolved
@@ -46,6 +48,31 @@ router = APIRouter(prefix="/api", tags=["bookings"])
 # are impossible. (If ever scaled to multiple processes, replace with a DB-level
 # guard such as Postgres' EXCLUDE constraint or SELECT ... FOR UPDATE.)
 _approve_lock = threading.Lock()
+
+
+def _enrich(db: Session, bookings: list[Booking]) -> list[Booking]:
+    """Attach farmhouse_name + bookie_name to each booking for display.
+
+    These are non-mapped attributes set directly on the ORM instances; Pydantic
+    (from_attributes=True) reads them via getattr when building BookingRead.
+    Batch-loads names to avoid N+1 queries.
+    """
+    if not bookings:
+        return bookings
+    fh_ids = {b.farmhouse_id for b in bookings}
+    user_ids = {b.bookie_id for b in bookings}
+    fh_names = {
+        fh.id: fh.name
+        for fh in db.query(Farmhouse.id, Farmhouse.name).filter(Farmhouse.id.in_(fh_ids)).all()
+    }
+    user_names = {
+        u.id: (u.name or u.email)
+        for u in db.query(User.id, User.name, User.email).filter(User.id.in_(user_ids)).all()
+    }
+    for b in bookings:
+        b.farmhouse_name = fh_names.get(b.farmhouse_id)
+        b.bookie_name = user_names.get(b.bookie_id)
+    return bookings
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -95,7 +122,7 @@ def create_hold(
 
     # ── Farmhouse checks ────────────────────────────────────────────────────
     fh: Farmhouse | None = db.get(Farmhouse, body.farmhouse_id)
-    if fh is None:
+    if fh is None or fh.tenant_id != current_user.tenant_id:
         raise HTTPException(status_code=404, detail="Farmhouse not found")
     if fh.status != "active":
         raise HTTPException(status_code=400, detail="Farmhouse is not active")
@@ -115,6 +142,7 @@ def create_hold(
     booking = Booking(
         farmhouse_id=fh.id,
         bookie_id=current_user.id,
+        tenant_id=current_user.tenant_id,
         status="hold",
         start_at=start_at,
         end_at=end_at,
@@ -240,6 +268,10 @@ def list_bookings(
     """
     query = db.query(Booking)
 
+    # Scope to the requester's estate.
+    from app.tenancy import tenant_clause
+    query = query.filter(tenant_clause(Booking.tenant_id, current_user.tenant_id))
+
     if current_user.role != "admin":
         query = query.filter(Booking.bookie_id == current_user.id)
 
@@ -260,7 +292,7 @@ def list_bookings(
     if farmhouse_id is not None:
         query = query.filter(Booking.farmhouse_id == farmhouse_id)
 
-    return query.order_by(Booking.created_at.desc()).all()
+    return _enrich(db, query.order_by(Booking.created_at.desc()).all())
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +314,7 @@ def get_booking(
         raise HTTPException(status_code=404, detail="Booking not found")
     if booking.bookie_id != current_user.id and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="You do not have permission to view this booking")
-    return booking
+    return _enrich(db, [booking])[0]
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +409,106 @@ def approve_booking(
         db.commit()
     db.refresh(booking)
     return booking
+
+
+# ---------------------------------------------------------------------------
+# POST /api/bookings/direct  (admin direct booking — Issues.md gap)
+# ---------------------------------------------------------------------------
+
+@router.post("/bookings/direct", response_model=BookingRead, status_code=201)
+def direct_book(
+    body: DirectBookRequest,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+) -> Booking:
+    """Admin creates a confirmed booking in one step (status -> 'booked').
+
+    Skips the hold/submit/approve flow. Runs the same future/window validation
+    and the exclusive-overlap conflict check as /approve, under the same
+    process-level lock, so confirmed double bookings remain impossible.
+
+    Returns 409 {detail, conflict_booking_id} if the slot conflicts with an
+    existing confirmed booking.
+    """
+    now = datetime.now(timezone.utc)
+
+    start_at = body.start_at
+    end_at = body.end_at
+    if start_at.tzinfo is None:
+        raise HTTPException(status_code=422, detail="start_at must include timezone info")
+    if end_at.tzinfo is None:
+        raise HTTPException(status_code=422, detail="end_at must include timezone info")
+    start_at = start_at.astimezone(timezone.utc)
+    end_at = end_at.astimezone(timezone.utc)
+
+    if start_at >= end_at:
+        raise HTTPException(status_code=422, detail="start_at must be strictly before end_at")
+    if start_at <= now:
+        raise HTTPException(status_code=422, detail="start_at must be in the future")
+
+    fh: Farmhouse | None = db.get(Farmhouse, body.farmhouse_id)
+    if fh is None or fh.tenant_id != admin.tenant_id:
+        raise HTTPException(status_code=404, detail="Farmhouse not found")
+    if fh.status != "active":
+        raise HTTPException(status_code=400, detail="Farmhouse is not active")
+
+    validate_booking_window(db, farmhouse=fh, start_at=start_at, end_at=end_at, now=now)
+
+    with _approve_lock:
+        conflict = find_booked_conflict(
+            db,
+            farmhouse_id=fh.id,
+            start_at=start_at,
+            end_at=end_at,
+            buffer_minutes=fh.buffer_minutes,
+        )
+        if conflict is not None:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "detail": "Time slot conflicts with an existing confirmed booking",
+                    "conflict_booking_id": conflict.id,
+                },
+            )
+
+        booking = Booking(
+            farmhouse_id=fh.id,
+            bookie_id=admin.id,
+            tenant_id=admin.tenant_id,
+            status="booked",
+            start_at=start_at,
+            end_at=end_at,
+            buffer_minutes_snapshot=fh.buffer_minutes,
+            client_name=body.client_name,
+            client_contact=body.client_contact,
+            event_type=body.event_type,
+            event_info=body.event_info,
+            notes=body.notes,
+            quoted_price=body.quoted_price,
+            decided_by=admin.id,
+            decided_at=now,
+        )
+        db.add(booking)
+        db.flush()
+
+        log_activity(
+            db,
+            actor_id=admin.id,
+            action="booking.approved",
+            target_type="booking",
+            target_id=booking.id,
+            note="direct booking by admin",
+        )
+        dispatch_booking_event(
+            db,
+            type="booking.approved",
+            booking=booking,
+            actor_id=admin.id,
+            critical=True,
+        )
+        db.commit()
+    db.refresh(booking)
+    return _enrich(db, [booking])[0]
 
 
 # ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ from app.dependencies import get_current_user, require_admin
 from app.models.farmhouse import Farmhouse
 from app.models.user import User
 from app.schemas.farmhouse import FarmhouseCreate, FarmhouseRead, FarmhouseUpdate
+from app.tenancy import tenant_clause
 
 router = APIRouter(prefix="/api", tags=["farmhouses"])
 
@@ -49,7 +50,7 @@ def list_farmhouses(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    query = db.query(Farmhouse)
+    query = db.query(Farmhouse).filter(tenant_clause(Farmhouse.tenant_id, current_user.tenant_id))
     # Bookies always get active-only; only admins can request all
     if current_user.role != "admin" or not include_disabled:
         query = query.filter(Farmhouse.status == "active")
@@ -66,7 +67,10 @@ def get_farmhouse(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    fh = db.query(Farmhouse).filter_by(id=farmhouse_id).first()
+    fh = db.query(Farmhouse).filter(
+        Farmhouse.id == farmhouse_id,
+        tenant_clause(Farmhouse.tenant_id, current_user.tenant_id),
+    ).first()
     if fh is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Farmhouse not found")
     return _row_to_read(fh)
@@ -86,6 +90,7 @@ def create_farmhouse(
         json.dumps(payload.operating_hours) if payload.operating_hours is not None else None
     )
     fh = Farmhouse(
+        tenant_id=current_user.tenant_id,
         name=payload.name,
         description=payload.description,
         capacity=payload.capacity,
@@ -109,7 +114,10 @@ def update_farmhouse(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    fh = db.query(Farmhouse).filter_by(id=farmhouse_id).first()
+    fh = db.query(Farmhouse).filter(
+        Farmhouse.id == farmhouse_id,
+        tenant_clause(Farmhouse.tenant_id, current_user.tenant_id),
+    ).first()
     if fh is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Farmhouse not found")
 

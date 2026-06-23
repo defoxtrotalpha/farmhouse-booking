@@ -26,6 +26,10 @@ class BlackoutDate(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
+    tenant_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("tenants.id"), nullable=True, index=True
+    )
+
     # NULL = global blackout applying to all farmhouses.
     farmhouse_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("farmhouses.id"), nullable=True, index=True

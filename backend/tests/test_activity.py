@@ -300,13 +300,21 @@ def test_get_activity_unauthenticated_returns_401(act_client):
 # ===========================================================================
 
 def test_no_mutating_routes_exist_for_activity():
-    """The activity router must NOT register PUT, PATCH, or DELETE endpoints."""
+    """The activity log is append-only per entry.
+
+    No PUT/PATCH routes may exist, and the only DELETE permitted is the
+    collection-level admin "clear activity" endpoint (DELETE /api/activity).
+    Individual entries can never be edited or deleted.
+    """
     from app.main import create_app
     application = create_app()
     bad_methods = {"PUT", "PATCH", "DELETE"}
     for route in application.routes:
         if hasattr(route, "path") and "/activity" in route.path:
             overlap = set(route.methods or []) & bad_methods
+            # Allow only the collection-level clear endpoint to expose DELETE.
+            if route.path == "/api/activity":
+                overlap -= {"DELETE"}
             assert not overlap, (
                 f"Mutating route found at {route.path} with methods {route.methods}"
             )

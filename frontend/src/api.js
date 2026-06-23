@@ -66,11 +66,11 @@ export async function apiFetch(path, options = {}) {
 // Auth endpoints
 // ---------------------------------------------------------------------------
 
-export async function login(email, password) {
+export async function login(tenant, identifier, password) {
   const res = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ tenant: tenant || null, identifier, password }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -83,6 +83,42 @@ export async function login(email, password) {
   const data = await res.json();
   tokens.set(data.access_token, data.refresh_token);
   return data;
+}
+
+/**
+ * Request a new company. The request goes to the platform global admin for
+ * approval — no tokens are returned and the user is NOT signed in.
+ * Returns the SignupResponse `{ status, message }`.
+ */
+export async function signupCompany({ company_name, name, password, email }) {
+  const res = await fetch(`${BASE}/api/auth/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ company_name, name, email, password }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const detail = err.detail;
+    const msg = Array.isArray(detail)
+      ? detail.map((e) => e.msg ?? String(e)).join("; ")
+      : (detail ?? "Sign up failed");
+    throw Object.assign(new Error(msg), { status: res.status });
+  }
+  return res.json();
+}
+
+/** Change the signed-in user's own password. */
+export async function changePassword(current_password, new_password) {
+  const res = await apiFetch("/api/auth/change-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_password, new_password }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to change password"), { status: res.status });
+  }
+  return res.json();
 }
 
 export async function getMe() {
@@ -142,17 +178,27 @@ export async function updateFarmhouse(id, data) {
 // Invite endpoints
 // ---------------------------------------------------------------------------
 
-export async function inviteBookie(name, email) {
+export async function inviteBookie(name, email, role = "bookie") {
   const res = await apiFetch("/api/invites", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, email }),
+    body: JSON.stringify({ name, email, role }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw Object.assign(new Error(err.detail ?? "Failed to send invite"), { status: res.status });
   }
   return res.json();
+}
+
+/** Cancel a pending invite (admin only) — removes the unaccepted user + token. */
+export async function cancelInvite(userId) {
+  const res = await apiFetch(`/api/invites/${userId}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to cancel invite"), { status: res.status });
+  }
+  return true;
 }
 
 // setPassword deliberately does NOT attach an auth token (public endpoint).
@@ -216,6 +262,16 @@ export async function listActivity({ limit = 50, offset = 0 } = {}) {
     throw new Error(err.detail ?? "Failed to load activity log");
   }
   return res.json();
+}
+
+/** Clear all activity log entries for the current company (admin only). */
+export async function clearActivity() {
+  const res = await apiFetch("/api/activity", { method: "DELETE" });
+  if (!res.ok && res.status !== 204) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to clear activity"), { status: res.status });
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -402,7 +458,7 @@ export async function cancelBooking(bookingId, reason) {
   const res = await apiFetch(`/api/bookings/${bookingId}/cancel`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify({ reason: reason || null }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -647,6 +703,18 @@ export async function getTrends({ start, end, granularity = "month" } = {}) {
 }
 
 /**
+ * Fetch revenue / finances analytics: totals, per-farmhouse revenue, and a
+ * per-period (week/month/year) revenue breakdown.
+ * @param {{ start?: string, end?: string, granularity?: string }} [opts]
+ * @returns {Promise<{totals: Object, per_farmhouse: Array, granularity: string, breakdown: Array}>}
+ */
+export async function getReportFinances({ start, end, granularity = "month" } = {}) {
+  const res = await apiFetch(`/api/reports/finances${_reportsQs({ start, end, granularity })}`);
+  if (!res.ok) throw new Error("Failed to load finances");
+  return res.json();
+}
+
+/**
  * Search/filter the bookings list (admin report view).
  * @param {{ farmhouse_id?, status?, start?, end?, bookie_id?, client? }} [opts]
  * @returns {Promise<Array>}
@@ -684,5 +752,195 @@ export async function downloadReportExport({
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+// ---------------------------------------------------------------------------
+// Users / bookies (admin) — roster + invite-acceptance status
+// ---------------------------------------------------------------------------
+
+/** List users (admin only). Pass {role:'bookie'} to filter. */
+export async function listUsers({ role } = {}) {
+  const qs = role ? `?role=${encodeURIComponent(role)}` : "";
+  const res = await apiFetch(`/api/users${qs}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? "Failed to load users");
+  }
+  return res.json();
+}
+
+/** Enable/disable a user (admin only). */
+export async function updateUser(id, patch) {
+  const res = await apiFetch(`/api/users/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to update user"), { status: res.status });
+  }
+  return res.json();
+}
+
+/** Admin creates an active user with username + password (no invite needed). */
+export async function createUserDirect({ name, username, password, role = "bookie", email }) {
+  const res = await apiFetch("/api/users/direct", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, username, password, role, email: email || null }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const detail = err.detail;
+    const msg = Array.isArray(detail)
+      ? detail.map((e) => e.msg ?? String(e)).join("; ")
+      : (detail ?? "Failed to create user");
+    throw Object.assign(new Error(msg), { status: res.status });
+  }
+  return res.json();
+}
+
+/** Permanently remove a user and their bookings (admin only). */
+export async function deleteUser(id) {
+  const res = await apiFetch(`/api/users/${id}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to remove user"), { status: res.status });
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Admin direct booking — create a confirmed booking in one step
+// ---------------------------------------------------------------------------
+
+/**
+ * Admin creates a confirmed booking directly (no hold/submit/approve).
+ * @param {{ farmhouse_id, start_at: Date, end_at: Date, client_name, client_contact,
+ *           event_type?, event_info?, notes?, quoted_price? }} data
+ * On 409 conflict: throws err with err.conflict_booking_id set.
+ */
+export async function directBook(data) {
+  const body = {
+    ...data,
+    start_at: data.start_at.toISOString(),
+    end_at: data.end_at.toISOString(),
+  };
+  const res = await apiFetch("/api/bookings/direct", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return res.json();
+  const err = await res.json().catch(() => ({}));
+  const detail = err.detail;
+  const msg = Array.isArray(detail)
+    ? detail.map((e) => e.msg ?? String(e)).join("; ")
+    : (detail ?? "Failed to create booking");
+  throw Object.assign(new Error(msg), {
+    status: res.status,
+    conflict_booking_id: err.conflict_booking_id ?? null,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Platform administration (global admin only)
+// ---------------------------------------------------------------------------
+
+/** List every company on the platform with status + admin + counts. */
+export async function listCompanies() {
+  const res = await apiFetch("/api/companies");
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? "Failed to load companies");
+  }
+  return res.json();
+}
+
+/** Create an approved company together with its first admin. */
+export async function createCompany({ company_name, admin_name, admin_email, admin_password }) {
+  const res = await apiFetch("/api/companies", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ company_name, admin_name, admin_email, admin_password }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const detail = err.detail;
+    const msg = Array.isArray(detail)
+      ? detail.map((e) => e.msg ?? String(e)).join("; ")
+      : (detail ?? "Failed to create company");
+    throw Object.assign(new Error(msg), { status: res.status });
+  }
+  return res.json();
+}
+
+/** Approve a pending company. */
+export async function approveCompany(id) {
+  const res = await apiFetch(`/api/companies/${id}/approve`, { method: "POST" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to approve company"), { status: res.status });
+  }
+  return res.json();
+}
+
+/** Reject a pending company. */
+export async function rejectCompany(id) {
+  const res = await apiFetch(`/api/companies/${id}/reject`, { method: "POST" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to reject company"), { status: res.status });
+  }
+  return res.json();
+}
+
+/** Permanently delete a company and all of its data. */
+export async function deleteCompany(id) {
+  const res = await apiFetch(`/api/companies/${id}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to delete company"), { status: res.status });
+  }
+  return true;
+}
+
+/** List all platform global admins. */
+export async function listGlobalAdmins() {
+  const res = await apiFetch("/api/global-admins");
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? "Failed to load global admins");
+  }
+  return res.json();
+}
+
+/** Add another global admin. */
+export async function createGlobalAdmin({ name, email, password }) {
+  const res = await apiFetch("/api/global-admins", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, email, password }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const detail = err.detail;
+    const msg = Array.isArray(detail)
+      ? detail.map((e) => e.msg ?? String(e)).join("; ")
+      : (detail ?? "Failed to add global admin");
+    throw Object.assign(new Error(msg), { status: res.status });
+  }
+  return res.json();
+}
+
+/** Remove a global admin (at least one must remain). */
+export async function deleteGlobalAdmin(id) {
+  const res = await apiFetch(`/api/global-admins/${id}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.detail ?? "Failed to remove global admin"), { status: res.status });
+  }
+  return true;
 }
 

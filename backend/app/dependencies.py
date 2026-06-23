@@ -55,3 +55,15 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
     if user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return user
+
+
+def require_global_admin(user: User = Depends(get_current_user)) -> User:
+    """Require the authenticated user to be a platform global admin, or raise 403.
+
+    Global admins have no company (``tenant_id IS NULL``) and govern the whole
+    deployment: creating/approving/removing companies and managing other
+    global admins.
+    """
+    if user.role != "global_admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Global admin access required")
+    return user

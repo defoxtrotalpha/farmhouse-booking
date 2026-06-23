@@ -18,6 +18,7 @@ from app.dependencies import get_current_user, require_admin
 from app.models.blackout import BlackoutDate
 from app.schemas.blackout import BlackoutCreate, BlackoutRead
 from app.services.activity import log_activity
+from app.tenancy import tenant_clause
 
 router = APIRouter(prefix="/api", tags=["blackouts"])
 
@@ -38,7 +39,9 @@ def list_blackouts(
     With ?farmhouse_id=X, returns only global (farmhouse_id IS NULL) blackouts
     plus those assigned specifically to farmhouse X.
     """
-    query = db.query(BlackoutDate)
+    query = db.query(BlackoutDate).filter(
+        tenant_clause(BlackoutDate.tenant_id, current_user.tenant_id)
+    )
     if farmhouse_id is not None:
         query = query.filter(
             or_(
@@ -67,6 +70,7 @@ def create_blackout(
         )
 
     b = BlackoutDate(
+        tenant_id=current_user.tenant_id,
         farmhouse_id=body.farmhouse_id,
         start_date=body.start_date,
         end_date=body.end_date,
@@ -99,7 +103,7 @@ def delete_blackout(
 ):
     """Delete a blackout date. Admin only."""
     b = db.get(BlackoutDate, blackout_id)
-    if b is None:
+    if b is None or b.tenant_id != current_user.tenant_id:
         raise HTTPException(status_code=404, detail="Blackout not found")
 
     log_activity(

@@ -22,6 +22,11 @@ class Booking(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
+    # ── tenant (estate) ───────────────────────────────────────────────────────
+    tenant_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("tenants.id"), nullable=True, index=True
+    )
+
     # ── foreign keys ──────────────────────────────────────────────────────────
     farmhouse_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("farmhouses.id"), nullable=False, index=True

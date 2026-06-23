@@ -173,6 +173,22 @@ def get_trends(
     return reports_svc.trends(db, start=s, end=e, granularity=granularity)
 
 
+@router.get("/reports/finances")
+def get_finances(
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    granularity: str = Query("month", description="'week', 'month' or 'year'"),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    """Revenue analytics: totals, per-farmhouse revenue, and a per-period
+    (week/month/year) revenue breakdown over confirmed (booked) bookings."""
+    default_start, default_end = _default_range()
+    s = _parse_dt(start, default_start)
+    e = _parse_dt(end, default_end)
+    return reports_svc.finances(db, start=s, end=e, granularity=granularity)
+
+
 @router.get("/reports/bookings")
 def get_bookings_report(
     farmhouse_id: Optional[int] = Query(None),
